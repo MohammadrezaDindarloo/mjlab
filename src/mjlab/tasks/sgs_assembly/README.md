@@ -67,13 +67,33 @@ uv run pytest src/mjlab/tasks/sgs_assembly/tests       # not part of `make test`
 - **Arm-link collisions off** by default (only hand/fingers collide); flip
   `arm_collisions` in `franka_constants.py` if the arm hitting the table matters.
 
+## MDP (Step 4), following SGS App. A.2, A.3.2, C.3
+
+| | Definition | Where |
+|---|---|---|
+| Action (8) | arm: delta joint targets, `q* += 0.05 rad * a`; gripper: binary, `a > 0` open | `mdp/actions.py` |
+| Actor obs (53) | joint pos, EE pose in base, previous action, peg & hole in EE frame, peg in hole frame | `mdp/observations.py` |
+| Critic obs (62) | actor + joint velocities | `env_cfg.py` |
+| Success S | tilt <= 5 deg, lateral <= 3 mm, depth >= 25 mm (either peg end; yaw free) | `mdp/success.py` |
+| Failure F | arm joint speed > 2x limit, or peg outside workspace box | `mdp/terminations.py` |
+| Reward (Eq. 5) | `100*1[S] - 1*1[F] - 1e-5*C(a^2) - 1e-4*C(da^2) - 1e-4*C(qd_arm^2)` | `mdp/rewards.py` |
+| Episode end | S, F (terminal) or 10 s time-out | `env_cfg.py` |
+| Reset | robot home; peg upright, +-0.1 m in x/y, any yaw | `config/franka_peg/` |
+
+Choices where the paper is silent:
+- **Delta arm targets** (not "home + scale * a"), so a zero action holds the pose
+  and reset-deck states far from home are not undone on the first step.
+- **Pose observations in the gripper frame** stand in for the point cloud; poses
+  use position + the first two rotation-matrix columns (continuous).
+- With `--agent zero` the gripper *closes* (binary command, `a = 0` means close).
+
 ## Roadmap
 
 - [x] Step 0: read mjlab, explain how a task is assembled
 - [x] Step 1: skeleton
 - [x] Step 2: FR3 + hand, robot-only task viewable in viser
 - [x] Step 3: peg + fixed hole, physics_cfg applied, contacts visible
-- [ ] Step 4: MDP terms (privileged obs, Eq. 5 reward, success gates, failures,
+- [x] Step 4: MDP terms (privileged obs, Eq. 5 reward, success gates, failures,
       time-out, simple random peg reset)
 - [ ] Step 5: verification without training (seated peg -> success & r~100,
       zero/random agents stable, scripted grasp pad-contact forces, warning counts)

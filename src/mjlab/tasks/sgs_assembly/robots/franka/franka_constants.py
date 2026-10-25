@@ -151,21 +151,17 @@ HOME_KEYFRAME = EntityCfg.InitialStateCfg(
   joint_vel={".*": 0.0},
 )
 
-# FR3 datasheet joint velocity limits [rad/s] (differ from the Panda's).
-# Check these against your robot's datasheet / libfranka version.
-JOINT_VEL_LIMITS = {
-  "fr3_joint[1-4]": 2.62,
-  "fr3_joint5": 5.26,
-  "fr3_joint6": 4.18,
-  "fr3_joint7": 5.26,
-}
+# FR3 datasheet joint velocity limits for joints 1..7 [rad/s] (differ from the
+# Panda's). Check these against your robot's datasheet / libfranka version.
+ARM_JOINT_VEL_LIMITS = (2.62, 2.62, 2.62, 2.62, 5.26, 4.18, 5.26)
 
-# target = home + scale * action. 0.5 rad per unit action for the arm (as in Isaac
-# Lab's Franka tasks); for the gripper, action -1 closes fully from open.
-ACTION_SCALE = {
-  "fr3_joint[1-7]": 0.5,
-  "finger_joint1": FINGER_OPEN,
-}
+# Delta joint-position action: the target moves by ARM_ACTION_SCALE * a per policy
+# step (0.04 s), i.e. 1.25 rad/s for |a| = 1, about half the slowest joint limit.
+ARM_ACTION_SCALE = 0.05  # [rad]
+
+# Binary gripper targets. Closed = 0 squeezes a 16 mm peg with
+# stiffness * 8 mm = 16 N; the 70 N effort limit caps anything harder.
+FINGER_CLOSED = 0.0  # [m]
 
 ##
 # Collisions. Which geoms collide is decided here; the numbers come from ContactCfg.
@@ -202,10 +198,12 @@ def get_fr3_robot_cfg(contact: ContactCfg, arm_collisions: bool = False) -> Enti
 
 FR3_INFO = RobotInfo(
   make_entity_cfg=partial(get_fr3_robot_cfg, arm_collisions=False),
-  action_scale=ACTION_SCALE,
   arm_joints=("fr3_joint[1-7]",),
-  gripper_joints=("finger_joint[12]",),
-  joint_vel_limits=JOINT_VEL_LIMITS,
+  arm_joint_vel_limits=ARM_JOINT_VEL_LIMITS,
+  arm_action_scale=ARM_ACTION_SCALE,
+  gripper_joint="finger_joint1",
+  gripper_open=FINGER_OPEN,
+  gripper_closed=FINGER_CLOSED,
   ee_site=EE_SITE,
   pad_geoms=PAD_GEOMS,
   root_body="fr3_link0",

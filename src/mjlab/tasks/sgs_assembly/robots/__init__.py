@@ -15,14 +15,19 @@ from mjlab.tasks.sgs_assembly.physics_cfg import ContactCfg
 class RobotInfo:
   make_entity_cfg: Callable[[ContactCfg], EntityCfg]
   """Builds the robot entity, with contact parameters taken from ``ContactCfg``."""
-  action_scale: dict[str, float]
-  """Joint-position action scale per actuator regex: target = default + scale * a."""
   arm_joints: tuple[str, ...]
-  """Regexes for the arm joints (used e.g. by the |qdot_arm|^2 penalty)."""
-  gripper_joints: tuple[str, ...]
-  """Regexes for the gripper joints."""
-  joint_vel_limits: dict[str, float]
-  """Hardware joint velocity limits [rad/s] (MuJoCo does not store these)."""
+  """Regexes for the arm joints, in joint order."""
+  arm_joint_vel_limits: tuple[float, ...]
+  """Hardware velocity limit per arm joint [rad/s], same order as ``arm_joints``
+  (MuJoCo does not store these)."""
+  arm_action_scale: float
+  """Joint-target change per policy step for action 1 [rad]."""
+  gripper_joint: str
+  """The actuated gripper joint."""
+  gripper_open: float
+  """Gripper joint target for 'open'."""
+  gripper_closed: float
+  """Gripper joint target for 'close'."""
   ee_site: str
   """Tool-centre-point site between the fingertips."""
   pad_geoms: str
