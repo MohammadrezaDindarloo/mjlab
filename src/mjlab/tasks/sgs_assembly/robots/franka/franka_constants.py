@@ -84,6 +84,10 @@ def get_spec() -> mujoco.MjSpec:
   if GRAVITY_COMPENSATION:
     for body in arm.bodies:
       body.gravcomp = 1.0
+
+  # Both fingers, including the unactuated one (see GRIPPER_ARMATURE).
+  for name in ("finger_joint1", "finger_joint2"):
+    arm.joint(name).armature = GRIPPER_ARMATURE
   return arm
 
 
@@ -115,17 +119,24 @@ ARM_ACTUATORS = (
 )
 
 # Franka Hand: one actuated finger; finger_joint2 follows through the XML's
-# equality constraint. Force limit = the hand's 70 N continuous grasp force, so
-# grasp normal forces (and hence friction limits) are realistic. Stiffness is our
-# choice: closing on a 16 mm peg from a fully-closed target gives ~16 N; targets
-# below 0 (allowed, ctrl is unlimited) squeeze harder, up to 70 N.
+# equality constraint, so the actuator force is shared by the two pads: total grip
+# = sum of both pad normal forces = actuator force. Force limit = the hand's 70 N
+# continuous grasp force, so friction limits are realistic. Stiffness is our
+# choice: closing on a 16 mm peg (target 0) grips with ~14 N in total.
+#
+# Armature (reflected motor/gear inertia, which the real hand has) is required at
+# dt = 5 ms: the fingers weigh 15 g, so without it k = 2000 N/m gives
+# omega*dt ~ 1.8 (unstable integration, fingers oscillate and drop the peg), and
+# MuJoCo's mass-scaled contacts on such light bodies are very soft. With 0.1 kg:
+# omega*dt ~ 0.65, fingers agree within 1 mm, ~1 mm pad penetration at 14 N.
 GRIPPER_FORCE_LIMIT = 70.0  # [N]
+GRIPPER_ARMATURE = 0.1  # [kg]
 GRIPPER_ACTUATOR = BuiltinPositionActuatorCfg(
   target_names_expr=("finger_joint1",),
   stiffness=2000.0,
   damping=100.0,
   effort_limit=GRIPPER_FORCE_LIMIT,
-)
+)  # Armature is set on both finger joints in get_spec.
 
 ARTICULATION = EntityArticulationInfoCfg(
   actuators=(*ARM_ACTUATORS, GRIPPER_ACTUATOR),

@@ -46,7 +46,21 @@ uv run play Mjlab-SGS-PegHole-FR3 --agent zero --viewer viser
 uv run python src/mjlab/tasks/sgs_assembly/scripts/inspect_scene.py \
   Mjlab-SGS-PegHole-FR3 --seconds 1.0                  # compiled params + contacts
 uv run pytest src/mjlab/tasks/sgs_assembly/tests       # not part of `make test`
+uv run python src/mjlab/tasks/sgs_assembly/scripts/grasp_friction.py --verbose
+uv run python src/mjlab/tasks/sgs_assembly/scripts/run_agents.py   # see docstring
 ```
+
+## Verification results (Step 5)
+
+- Success/reward (`tests/test_sgs_mdp.py`): seated peg -> S = True, r = 100.00;
+  beside (60 mm), hovering above, and only 10 mm in -> S = False, r = 0.00.
+- Agents (`run_agents.py`, 256 envs x 10 s): no NaNs, no failure terminations,
+  0 line-search warnings for both zero and random agents.
+- Pad friction (`grasp_friction.py`, grip 14.5 N total): during a slow pull-out
+  the max per-contact |f_t|/f_n is exactly 0.500 / 1.000 / 2.000 for pad mu =
+  0.5 / 1 / 2, and gross slip happens 5-11 % above the Coulomb estimate. MuJoCo
+  friction is soft: below the limit the peg creeps (up to ~2.6 mm at mu = 2 for a
+  slow 5 N/s pull), which matters for the later friction-gap constraint.
 
 ## Design decisions (and why)
 
@@ -57,6 +71,9 @@ uv run pytest src/mjlab/tasks/sgs_assembly/tests       # not part of `make test`
   the PD loop sags about 7 mm at the TCP.
 - **Gripper force limit 70 N** (Franka Hand continuous force) so grasp normal forces,
   and hence friction limits, are realistic. Stiffness 2000 N/m is our choice.
+- **Finger armature 0.1 kg** (reflected motor/gear inertia). Without it the 15 g
+  fingers are numerically unstable at dt = 5 ms with that stiffness (they
+  oscillate and drop the peg) and their contacts are very soft.
 - **Square peg first.** Box-box contacts are multi-point in MuJoCo Warp;
   cylinder-box gives one contact per pair. Round rod later behind a switch.
 - **Friction combine = max** (all priorities 0), as in SGS. Keep object mu at or below
@@ -95,7 +112,7 @@ Choices where the paper is silent:
 - [x] Step 3: peg + fixed hole, physics_cfg applied, contacts visible
 - [x] Step 4: MDP terms (privileged obs, Eq. 5 reward, success gates, failures,
       time-out, simple random peg reset)
-- [ ] Step 5: verification without training (seated peg -> success & r~100,
+- [x] Step 5: verification without training (seated peg -> success & r~100,
       zero/random agents stable, scripted grasp pad-contact forces, warning counts)
 - [ ] Reset deck (Near-Goal / Stable Grasp / Reaching), saved to disk
 - [ ] Uniform-sampling PPO baseline
