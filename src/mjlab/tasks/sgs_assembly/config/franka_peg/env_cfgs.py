@@ -6,6 +6,7 @@ Layout (env frame, metres): robot base at the origin, hole fixture at
 """
 
 import math
+from typing import Literal
 
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.managers.event_manager import EventTermCfg
@@ -30,6 +31,8 @@ from mjlab.tasks.sgs_assembly.objects.peg_hole.peg_hole import (
 from mjlab.tasks.sgs_assembly.physics_cfg import PhysicsCfg
 from mjlab.tasks.sgs_assembly.robots.franka.franka_constants import FR3_INFO
 from mjlab.utils.noise.noise_cfg import GaussianNoiseCfg
+
+ObsMode = Literal["pointcloud", "pose"]
 
 HOLE_POS = (0.55, 0.15, 0.0)
 PEG_XY = (0.55, -0.15)
@@ -65,7 +68,11 @@ def fr3_peg_hole_env_cfg(
   peg_hole: PegHoleCfg | None = None,
   gates: InsertionGatesCfg | None = None,
   weights: rewards.SgsRewardWeights | None = None,
+  obs_mode: ObsMode = "pointcloud",
 ) -> ManagerBasedRlEnvCfg:
+  """``obs_mode``: "pointcloud" (paper App. A.3.2 / C.3: the actor sees the scene
+  only as the point cloud; the critic also gets exact poses) or "pose" (actor
+  gets the peg/hole poses too; for debugging and comparison)."""
   physics = physics or PhysicsCfg()
   peg_hole = peg_hole or PegHoleCfg()
   gates = gates or InsertionGatesCfg()
@@ -81,8 +88,9 @@ def fr3_peg_hole_env_cfg(
     weights=weights,
   )
 
-  # Observations: the scene in the gripper frame (stand-in for the point cloud),
-  # plus the peg relative to the hole. Same terms for actor and critic.
+  # Exact peg/hole poses in the gripper frame and peg-in-hole. Privileged for the
+  # critic (asymmetric actor-critic, paper App. C.3); the actor gets them only in
+  # "pose" mode, otherwise it sees the scene through the point cloud.
   ee_cfg = SceneEntityCfg("robot", site_names=(FR3_INFO.ee_site,))
   scene_terms = {
     "peg_in_ee": ObservationTermCfg(
@@ -98,8 +106,9 @@ def fr3_peg_hole_env_cfg(
       params={"entity_name": "peg", "frame_entity_name": "hole"},
     ),
   }
-  for group in ("actor", "critic"):
-    cfg.observations[group].terms.update(scene_terms)
+  cfg.observations["critic"].terms.update(scene_terms)
+  if obs_mode == "pose":
+    cfg.observations["actor"].terms.update(scene_terms)
 
   # Scene point cloud in the gripper frame (paper App. A.3.2), (N, 320, 6):
   # xyz with 1 mm Gaussian noise during training (App. C.4) + part label.

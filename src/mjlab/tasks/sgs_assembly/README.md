@@ -83,6 +83,39 @@ succeed (94 %), ~9 s each. Lessons:
   (~1.0 vs ~0.3 mm), and at ~4.5 deg the peg is squeezed out. Contact stiffness
   (solref/solimp on the pads) is the open physics question here.
 
+## Training (PPO)
+
+PPO and the training loop come from RSL-RL (via mjlab's `uv run train`); this
+folder only provides the configs:
+
+| What | Where |
+|---|---|
+| task name -> env cfg + PPO cfg + runner | `config/franka_peg/__init__.py` |
+| environment (scene, reward, resets, observations) | `config/franka_peg/env_cfgs.py`, `env_cfg.py`, `mdp/` |
+| PPO settings (nets, lr, gamma, lambda, clip, mini-batches, W&B project) | `config/franka_peg/rl_cfg.py` |
+| PointNet actor/critic | `rl/pointnet.py` |
+
+Observations follow the paper (App. A.3.2, C.3): actor = joint positions, EE
+pose, previous action, scene point cloud (gripper frame); critic = the same +
+joint velocities + exact peg/hole poses. Both use their own PointNet (6 -> 64 ->
+128, max over points, bfloat16) before an MLP (512, 256, 128).
+`Mjlab-SGS-PegHole-FR3-Deck-Pose` swaps the point cloud for exact poses (debug).
+
+```bash
+# One command (works with bash in an interactive job, or with sbatch):
+RUN_NAME=uniform_16k MAX_ITERS=1000 bash src/mjlab/tasks/sgs_assembly/scripts/train.sh
+sbatch --export=ALL,RUN_NAME=uniform_16k,MAX_ITERS=5000 \
+  src/mjlab/tasks/sgs_assembly/scripts/train.sh
+# 4 GPUs on one node (each GPU runs NUM_ENVS envs):
+sbatch --gres=gpu:a40:4 --cpus-per-task=12 --mem=96G \
+  --export=ALL,RUN_NAME=uniform_4x16k src/mjlab/tasks/sgs_assembly/scripts/train.sh
+```
+Checkpoints: `logs/rsl_rl/sgs_fr3_peg_hole/<date>_<run>/model_<it>.pt` (every 50
+iterations, plus `params/` with the run's exact configs); curves: W&B project
+`sgs-assembly`. Speed on one A40 at 16384 envs: ~14 s per iteration, 16 mini-batches
+(4 ran out of memory). See the header of `scripts/train.sh` for all options
+(resume, GPUs, log root).
+
 ## Design decisions (and why)
 
 - **FR3 v1 + MJX Franka Hand.** Menagerie's FR3 has no gripper; the Franka Hand is
