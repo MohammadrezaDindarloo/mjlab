@@ -6,7 +6,9 @@ all with zero velocity. The action terms reset *after* events, so the arm target
 and gripper target start at exactly the deck state (nothing jumps on step 1).
 
 Which row each env gets is chosen uniformly for now; the SGS sampler (sampling/)
-will replace ``_choose``. ``self.index[env]`` remembers the row each env started
+will replace ``_choose``. ``families`` (names from ``Family``, e.g. ("REACHING",))
+restricts the draw to those families, e.g. to watch or evaluate one family; None
+uses the whole deck. ``self.index[env]`` remembers the row each env started
 from, which is what the sampler will need to credit success to a deck entry.
 """
 
@@ -18,7 +20,7 @@ import torch
 
 from mjlab.managers.event_manager import EventTermCfg
 from mjlab.managers.manager_base import ManagerTermBase
-from mjlab.tasks.sgs_assembly.resets.deck import ResetDeck
+from mjlab.tasks.sgs_assembly.resets.deck import Family, ResetDeck
 
 if TYPE_CHECKING:
   from mjlab.envs import ManagerBasedRlEnv
@@ -36,6 +38,14 @@ class reset_from_deck(ManagerTermBase):
     self.peg_quat = torch.tensor(deck.peg_quat, device=dev)
     self.family = torch.tensor(deck.family, device=dev, dtype=torch.long)
     self.size = len(deck)
+    allowed = torch.ones(self.size, dtype=torch.bool, device=dev)
+    if p.get("families"):
+      codes = torch.tensor([int(Family[f]) for f in p["families"]], device=dev)
+      allowed = torch.isin(self.family, codes)
+    # Deck rows this env may start from (indices into the full deck).
+    self.rows = allowed.nonzero().flatten()
+    if len(self.rows) == 0:
+      raise ValueError(f"No deck rows of families {p['families']} in {p['deck_path']}")
     self.index = torch.zeros(env.num_envs, dtype=torch.long, device=dev)
     robot = env.scene[p["robot_name"]]
     arm_ids, _ = robot.find_joints(p["arm_joints"], preserve_order=True)
@@ -44,7 +54,7 @@ class reset_from_deck(ManagerTermBase):
     self.finger_ids = torch.tensor(finger_ids, device=dev)
 
   def _choose(self, n: int) -> torch.Tensor:
-    return torch.randint(self.size, (n,), device=self.device)
+    return self.rows[torch.randint(len(self.rows), (n,), device=self.device)]
 
   def __call__(
     self,
@@ -55,8 +65,9 @@ class reset_from_deck(ManagerTermBase):
     peg_name: str,
     arm_joints: tuple[str, ...],
     finger_joints: tuple[str, ...],
+    families: tuple[str, ...] | None = None,
   ) -> None:
-    del deck_path, arm_joints, finger_joints  # Used in __init__.
+    del deck_path, arm_joints, finger_joints, families  # Used in __init__.
     if env_ids is None:
       env_ids = torch.arange(env.num_envs, device=env.device)
     rows = self._choose(len(env_ids))

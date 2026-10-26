@@ -127,12 +127,16 @@ def fr3_peg_hole_env_cfg(
 
 
 def fr3_peg_hole_deck_env_cfg(
-  play: bool = False, deck_path: str = DEFAULT_DECK_PATH, **kwargs
+  play: bool = False,
+  deck_path: str = DEFAULT_DECK_PATH,
+  families: tuple[str, ...] | None = None,
+  **kwargs,
 ) -> ManagerBasedRlEnvCfg:
   """Peg-in-hole where every episode starts from a reset-deck entry.
 
   Replaces the simple resets (robot at home, upright random peg) by
-  ``reset_from_deck``; robot-base and hole placement events stay.
+  ``reset_from_deck``; robot-base and hole placement events stay. ``families``
+  (e.g. ("NEAR_GOAL",)) limits the starts to those deck families.
   """
   cfg = fr3_peg_hole_env_cfg(play=play, **kwargs)
   del cfg.events["reset_peg_pose"], cfg.events["reset_robot_joints"]
@@ -145,6 +149,7 @@ def fr3_peg_hole_deck_env_cfg(
       "peg_name": "peg",
       "arm_joints": FR3_INFO.arm_joints,
       "finger_joints": ("finger_joint1", "finger_joint2"),
+      "families": families,
     },
   )
   return cfg

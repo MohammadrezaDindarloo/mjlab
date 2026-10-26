@@ -31,3 +31,18 @@ register_mjlab_task(
   rl_cfg=fr3_peg_hole_ppo_runner_cfg(),
   runner_cls=ManipulationOnPolicyRunner,
 )
+
+# One task per deck family, e.g. to watch it or (Reaching) to evaluate on it, as in
+# the paper. They read the same deck file and only restrict which rows are drawn.
+for _suffix, _family in (
+  ("NearGoal", "NEAR_GOAL"),
+  ("StableGrasp", "STABLE_GRASP"),
+  ("Reaching", "REACHING"),
+):
+  register_mjlab_task(
+    task_id=f"Mjlab-SGS-PegHole-FR3-Deck-{_suffix}",
+    env_cfg=fr3_peg_hole_deck_env_cfg(families=(_family,)),
+    play_env_cfg=fr3_peg_hole_deck_env_cfg(play=True, families=(_family,)),
+    rl_cfg=fr3_peg_hole_ppo_runner_cfg(),
+    runner_cls=ManipulationOnPolicyRunner,
+  )

@@ -38,6 +38,7 @@ Rules that keep this extendable:
 | `Mjlab-SGS-Robot-FR3` | FR3 + hand on the table (robot checks) |
 | `Mjlab-SGS-PegHole-FR3` | + fixed hole and a free peg standing on the table |
 | `Mjlab-SGS-PegHole-FR3-Deck` | same task, every episode starts from a reset-deck entry |
+| `Mjlab-SGS-PegHole-FR3-Deck-NearGoal` / `-StableGrasp` / `-Reaching` | only that deck family (to watch; Reaching = the paper's evaluation set) |
 
 ## How to run
 
@@ -143,8 +144,21 @@ Choices where the paper is silent:
         strict-priority null-space projection), picks the least-wrist-turn
         equivalent grasp, and rejects joints beyond 90 % of their range and arm
         self-collision. Before: 10 % of states had a joint at its limit; now 0 %.
-  - [ ] 6b: Stable Grasp family
-  - [ ] 6c: Near-Goal family (along the insertion path, fraction 0..1.1)
+  - [x] 6b: Stable Grasp family: peg above the hole (tip 2-12 cm above the
+        entrance, +-5 cm, tilt <= 15 deg), end grasp on its top end randomised
+        (+-6 mm along, +-3 mm across, +-10 deg in the pad plane), fingers
+        0.2-3 mm wider than the peg. 100 % of candidates kept; with the gripper
+        closed, 100/100 pegs held (median 0.7 mm slip in 2 s).
+  - [x] 6c: Near-Goal family: peg on the hole axis at path fraction
+        f ~ U(0, 1.1) (tip at f x 30 mm; 0 = seated), +-0.3 mm / +-1 deg noise,
+        same task grasp as Stable Grasp. 100 % kept; ~15 % already satisfy the
+        success gates at reset (paper: "zero is fully seated").
+  - Deck = 10922 Reaching + 10923 Stable Grasp + 10923 Near-Goal = 32768 (the
+    paper's size, balanced). Stable Grasp / Near-Goal pegs are flipped
+    end-for-end with p = 1/2 (symmetry-aware resets, paper App. C.3).
+  - Open (gripper model): while the fingers close, pad-peg penetration briefly
+    reaches ~3-4 mm and the two (softly coupled) fingers differ by up to 2.4 mm;
+    steady holding is ~0.5 mm. Deck states themselves have no penetration.
 - [ ] Uniform-sampling PPO baseline
 - [ ] SGS sampler
 - [ ] Friction sweep reproducing the paper's pad-mu result (mu = 1, 2, 100)
