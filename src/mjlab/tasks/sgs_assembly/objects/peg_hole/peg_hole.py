@@ -22,6 +22,11 @@ from mjlab.tasks.sgs_assembly.physics_cfg import ContactCfg
 from mjlab.utils.spec_config import CollisionCfg
 
 PEG_RGBA = (0.85, 0.45, 0.1, 1.0)
+# Sites are reference points for our code (no physics). Group 4 is hidden in the
+# viewers by default (like the FR3's own sites); otherwise MuJoCo draws them as
+# 5 mm grey spheres that look like objects stuck in the peg.
+SITE_GROUP = 4
+SITE_SIZE = (0.002, 0.002, 0.002)
 HOLE_RGBA = (0.3, 0.4, 0.6, 1.0)
 
 
@@ -54,8 +59,12 @@ def make_peg_spec(cfg: PegHoleCfg) -> mujoco.MjSpec:
     mass=cfg.peg_mass,
     rgba=PEG_RGBA,
   )
-  body.add_site(name="peg_tip", pos=(0, 0, -cfg.peg_length / 2))
-  body.add_site(name="peg_top", pos=(0, 0, cfg.peg_length / 2))
+  body.add_site(
+    name="peg_tip", group=SITE_GROUP, size=SITE_SIZE, pos=(0, 0, -cfg.peg_length / 2)
+  )
+  body.add_site(
+    name="peg_top", group=SITE_GROUP, size=SITE_SIZE, pos=(0, 0, cfg.peg_length / 2)
+  )
   return spec
 
 
@@ -93,8 +102,8 @@ def make_hole_spec(cfg: PegHoleCfg) -> mujoco.MjSpec:
       pos=(x, y, d / 2),
       rgba=HOLE_RGBA,
     )
-  body.add_site(name="hole_entrance", pos=(0, 0, d))
-  body.add_site(name="hole_bottom", pos=(0, 0, 0))
+  body.add_site(name="hole_entrance", group=SITE_GROUP, size=SITE_SIZE, pos=(0, 0, d))
+  body.add_site(name="hole_bottom", group=SITE_GROUP, size=SITE_SIZE, pos=(0, 0, 0))
   return spec
 
 

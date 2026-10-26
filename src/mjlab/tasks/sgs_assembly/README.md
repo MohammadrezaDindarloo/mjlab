@@ -37,6 +37,7 @@ Rules that keep this extendable:
 |---|---|
 | `Mjlab-SGS-Robot-FR3` | FR3 + hand on the table (robot checks) |
 | `Mjlab-SGS-PegHole-FR3` | + fixed hole and a free peg standing on the table |
+| `Mjlab-SGS-PegHole-FR3-Deck` | same task, every episode starts from a reset-deck entry |
 
 ## How to run
 
@@ -51,6 +52,9 @@ uv run python src/mjlab/tasks/sgs_assembly/scripts/run_agents.py   # see docstri
 # Scripted pick-and-place (IK + state machine), watch it or get statistics:
 uv run python src/mjlab/tasks/sgs_assembly/scripts/scripted_insert.py --viewer
 uv run python src/mjlab/tasks/sgs_assembly/scripts/scripted_insert.py
+# Reset deck -> logs/sgs_decks/fr3_peg_hole.npz, then watch episodes start from it:
+uv run python src/mjlab/tasks/sgs_assembly/scripts/build_deck.py
+uv run play Mjlab-SGS-PegHole-FR3-Deck --agent zero --viewer viser
 ```
 
 ## Verification results (Step 5)
@@ -130,7 +134,17 @@ Choices where the paper is silent:
       time-out, simple random peg reset)
 - [x] Step 5: verification without training (seated peg -> success & r~100,
       zero/random agents stable, scripted grasp pad-contact forces, warning counts)
-- [ ] Reset deck (Near-Goal / Stable Grasp / Reaching), saved to disk
+- [ ] Reset deck, saved to disk (`resets/`, `scripts/build_deck.py`)
+  - [x] 6a: deck format, Reaching family (10922 states, 88 % of candidates kept,
+        ~2 min), `reset_from_deck` event, deck task. With the gripper closed
+        from the start, ~61 % of Reaching states end up holding the peg.
+        Arm posture: the FR3 has 7 joints for a 6D gripper pose, so the IK pulls
+        the spare DoF toward a randomised comfortable posture (home +-0.3 rad,
+        strict-priority null-space projection), picks the least-wrist-turn
+        equivalent grasp, and rejects joints beyond 90 % of their range and arm
+        self-collision. Before: 10 % of states had a joint at its limit; now 0 %.
+  - [ ] 6b: Stable Grasp family
+  - [ ] 6c: Near-Goal family (along the insertion path, fraction 0..1.1)
 - [ ] Uniform-sampling PPO baseline
 - [ ] SGS sampler
 - [ ] Friction sweep reproducing the paper's pad-mu result (mu = 1, 2, 100)

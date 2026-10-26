@@ -76,6 +76,7 @@ def get_spec() -> mujoco.MjSpec:
 
   # The hand body already carries the 0.107 m flange offset and the -45 deg yaw,
   # so attach it directly in the link7 frame (as in menagerie's panda.xml).
+  hand.site(EE_SITE).group = 4  # Hidden marker (it sits inside a grasped object).
   arm.attach(hand, prefix="", frame=arm.body("fr3_link7").add_frame())
 
   # The real Franka controller compensates gravity internally, so a joint target

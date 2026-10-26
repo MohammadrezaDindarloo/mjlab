@@ -8,12 +8,13 @@ Layout (env frame, metres): robot base at the origin, hole fixture at
 import math
 
 from mjlab.envs import ManagerBasedRlEnvCfg
+from mjlab.managers.event_manager import EventTermCfg
 from mjlab.managers.observation_manager import ObservationTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.tasks.sgs_assembly.env_cfg import make_assembly_env_cfg
-from mjlab.tasks.sgs_assembly.mdp import observations, rewards, terminations
+from mjlab.tasks.sgs_assembly.mdp import events, observations, rewards, terminations
 from mjlab.tasks.sgs_assembly.mdp.success import InsertionGatesCfg
 from mjlab.tasks.sgs_assembly.objects.peg_hole.peg_hole import (
   PegHoleCfg,
@@ -31,6 +32,9 @@ PEG_RESET_RANGE = {"x": (-0.1, 0.1), "y": (-0.1, 0.1), "yaw": (-math.pi, math.pi
 # catches a peg pushed through the table.
 WORKSPACE_LOWER = (0.0, -0.6, -0.05)
 WORKSPACE_UPPER = (1.0, 0.6, 0.8)
+# Default reset deck, built by scripts/build_deck.py (path relative to the repo
+# root, like mjlab's logs/; not committed).
+DEFAULT_DECK_PATH = "logs/sgs_decks/fr3_peg_hole.npz"
 
 
 def _apply_play_overrides(cfg: ManagerBasedRlEnvCfg) -> None:
@@ -119,4 +123,28 @@ def fr3_peg_hole_env_cfg(
 
   if play:
     _apply_play_overrides(cfg)
+  return cfg
+
+
+def fr3_peg_hole_deck_env_cfg(
+  play: bool = False, deck_path: str = DEFAULT_DECK_PATH, **kwargs
+) -> ManagerBasedRlEnvCfg:
+  """Peg-in-hole where every episode starts from a reset-deck entry.
+
+  Replaces the simple resets (robot at home, upright random peg) by
+  ``reset_from_deck``; robot-base and hole placement events stay.
+  """
+  cfg = fr3_peg_hole_env_cfg(play=play, **kwargs)
+  del cfg.events["reset_peg_pose"], cfg.events["reset_robot_joints"]
+  cfg.events["reset_from_deck"] = EventTermCfg(
+    func=events.reset_from_deck,
+    mode="reset",
+    params={
+      "deck_path": deck_path,
+      "robot_name": "robot",
+      "peg_name": "peg",
+      "arm_joints": FR3_INFO.arm_joints,
+      "finger_joints": ("finger_joint1", "finger_joint2"),
+    },
+  )
   return cfg
