@@ -58,6 +58,11 @@ class DeltaJointPositionAction(ActionTerm):
   def raw_action(self) -> torch.Tensor:
     return self._raw
 
+  @property
+  def target(self) -> torch.Tensor:
+    """Current arm joint-position targets, (num_envs, n_arm). Read-only use."""
+    return self._target
+
   def process_actions(self, actions: torch.Tensor) -> None:
     self._raw[:] = actions
     target = self._target + self.cfg.scale * actions

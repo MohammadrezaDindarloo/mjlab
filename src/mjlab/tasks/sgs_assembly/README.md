@@ -48,6 +48,9 @@ uv run python src/mjlab/tasks/sgs_assembly/scripts/inspect_scene.py \
 uv run pytest src/mjlab/tasks/sgs_assembly/tests       # not part of `make test`
 uv run python src/mjlab/tasks/sgs_assembly/scripts/grasp_friction.py --verbose
 uv run python src/mjlab/tasks/sgs_assembly/scripts/run_agents.py   # see docstring
+# Scripted pick-and-place (IK + state machine), watch it or get statistics:
+uv run python src/mjlab/tasks/sgs_assembly/scripts/scripted_insert.py --viewer
+uv run python src/mjlab/tasks/sgs_assembly/scripts/scripted_insert.py
 ```
 
 ## Verification results (Step 5)
@@ -61,6 +64,19 @@ uv run python src/mjlab/tasks/sgs_assembly/scripts/run_agents.py   # see docstri
   0.5 / 1 / 2, and gross slip happens 5-11 % above the Coulomb estimate. MuJoCo
   friction is soft: below the limit the peg creeps (up to ~2.6 mm at mu = 2 for a
   slow 5 N/s pull), which matters for the later friction-gap constraint.
+
+## Scripted insertion demo
+
+`scripts/scripted_insert.py` grasps the peg and inserts it through real contact,
+using `robots/ik.py` (damped least-squares IK, reused later by the reset deck)
+and the same 8-D action a policy outputs. 64 envs x 40 s: 223 / 236 episodes
+succeed (94 %), ~9 s each. Lessons:
+- A velocity step (0 -> 0.25 m/s in one control step) made ~25 % of grasps drop
+  the peg; an acceleration limit (0.5 m/s^2) brought that to ~6 %.
+- The remaining drops are not friction-limited (|f_t|/f_n <= 0.7 vs mu = 2): the
+  peg slowly rotates in the grasp, the soft pad contacts penetrate unequally
+  (~1.0 vs ~0.3 mm), and at ~4.5 deg the peg is squeezed out. Contact stiffness
+  (solref/solimp on the pads) is the open physics question here.
 
 ## Design decisions (and why)
 

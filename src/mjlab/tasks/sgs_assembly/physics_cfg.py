@@ -74,9 +74,12 @@ class SolverCfg:
   # robot-only: stiff arm gains + joint limits); 50 removed every warning.
   ls_iterations: int = 50
   ls_tolerance: float = 0.01
-  # Per-world contact/constraint buffer sizes (None = MuJoCo Warp heuristic).
-  nconmax: int | None = None
-  njmax: int | None = None
+  # Per-world contact / constraint-row buffer sizes. The MuJoCo Warp heuristic
+  # chose njmax = 64, but random actions reached 58 rows in one world (a grasp is
+  # ~8 contacts x 4 rows, elliptic condim 4) and at 16K envs some worlds
+  # overflowed, which silently drops constraints. ~3x the measured peaks:
+  nconmax: int | None = 48
+  njmax: int | None = 160
 
   def to_simulation_cfg(self) -> SimulationCfg:
     return SimulationCfg(
