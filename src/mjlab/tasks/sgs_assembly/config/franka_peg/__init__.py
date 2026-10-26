@@ -1,6 +1,6 @@
-from mjlab.rl import MjlabOnPolicyRunner
 from mjlab.tasks.manipulation.rl import ManipulationOnPolicyRunner
 from mjlab.tasks.registry import register_mjlab_task
+from mjlab.tasks.sgs_assembly.rl.runner import SgsOnPolicyRunner
 
 from .env_cfgs import (
   fr3_peg_hole_deck_env_cfg,
@@ -9,8 +9,9 @@ from .env_cfgs import (
 )
 from .rl_cfg import fr3_peg_hole_ppo_runner_cfg
 
-# Point-cloud tasks use the plain mjlab runner: the manipulation runner exports
-# an ONNX policy at every checkpoint, which the PointNet model does not support.
+# Point-cloud / deck tasks use SgsOnPolicyRunner: mjlab's runner + the deck
+# sampler's memory in every checkpoint (rl/runner.py). The manipulation runner
+# would also try an ONNX export per checkpoint, which PointNet does not support.
 _PC_RL = fr3_peg_hole_ppo_runner_cfg("pointcloud")
 
 register_mjlab_task(
@@ -26,7 +27,7 @@ register_mjlab_task(
   env_cfg=fr3_peg_hole_env_cfg(),
   play_env_cfg=fr3_peg_hole_env_cfg(play=True),
   rl_cfg=_PC_RL,
-  runner_cls=MjlabOnPolicyRunner,
+  runner_cls=SgsOnPolicyRunner,
 )
 
 # Main training task: every episode starts from a reset-deck entry; the actor
@@ -36,7 +37,7 @@ register_mjlab_task(
   env_cfg=fr3_peg_hole_deck_env_cfg(),
   play_env_cfg=fr3_peg_hole_deck_env_cfg(play=True),
   rl_cfg=_PC_RL,
-  runner_cls=MjlabOnPolicyRunner,
+  runner_cls=SgsOnPolicyRunner,
 )
 
 # Same deck and training, but episodes start from entries chosen by Success Guided
@@ -46,7 +47,7 @@ register_mjlab_task(
   env_cfg=fr3_peg_hole_deck_env_cfg(sampler="sgs"),
   play_env_cfg=fr3_peg_hole_deck_env_cfg(play=True, sampler="sgs"),
   rl_cfg=_PC_RL,
-  runner_cls=MjlabOnPolicyRunner,
+  runner_cls=SgsOnPolicyRunner,
 )
 
 # Same, but the actor sees exact peg/hole poses instead (debugging / comparison).
@@ -70,5 +71,5 @@ for _suffix, _family in (
     env_cfg=fr3_peg_hole_deck_env_cfg(families=(_family,)),
     play_env_cfg=fr3_peg_hole_deck_env_cfg(play=True, families=(_family,)),
     rl_cfg=_PC_RL,
-    runner_cls=MjlabOnPolicyRunner,
+    runner_cls=SgsOnPolicyRunner,
   )

@@ -74,6 +74,21 @@ class DeckSampler:
     """n configuration indices, drawn i.i.d. from P."""
     return torch.multinomial(self.probabilities(), n, replacement=True)
 
+  def state_dict(self) -> dict[str, torch.Tensor]:
+    """The sampler's memory (all histories), for checkpoints. ~3 MB for 32768."""
+    return {
+      "outcomes": self.outcomes.cpu(),
+      "cursor": self.cursor.cpu(),
+      "count": self.count.cpu(),
+    }
+
+  def load_state_dict(self, state: dict[str, torch.Tensor]) -> None:
+    assert state["outcomes"].shape == self.outcomes.shape, "deck size changed"
+    dev = self.outcomes.device
+    self.outcomes = state["outcomes"].to(dev)
+    self.cursor = state["cursor"].to(dev)
+    self.count = state["count"].to(dev)
+
   def record(self, configs: torch.Tensor, success: torch.Tensor) -> None:
     """Append one outcome per finished episode to its configuration's history.
 

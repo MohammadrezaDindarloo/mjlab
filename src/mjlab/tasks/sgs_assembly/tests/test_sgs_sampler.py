@@ -77,3 +77,12 @@ def test_uniform_mode_ignores_success_but_still_records_it():
   _set_rates(s, [0.0, 0.5, 1.0])
   assert torch.allclose(s.probabilities(), torch.full((3,), 1 / 3))
   assert s.success_rate().tolist() == pytest.approx([0.0, 0.5, 1.0])
+
+
+def test_state_dict_round_trip_restores_the_memory():
+  s = _sampler(3)
+  _set_rates(s, [0.0, 0.5, 1.0])
+  restored = _sampler(3)
+  restored.load_state_dict(s.state_dict())
+  assert torch.equal(restored.probabilities(), s.probabilities())
+  assert torch.equal(restored.cursor, s.cursor) and torch.equal(restored.count, s.count)
