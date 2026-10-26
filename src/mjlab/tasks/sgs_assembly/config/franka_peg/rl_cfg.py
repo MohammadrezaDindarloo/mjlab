@@ -38,7 +38,9 @@ def fr3_peg_hole_ppo_runner_cfg(obs_mode: str = "pointcloud") -> RslRlOnPolicyRu
       value_loss_coef=1.0,
       use_clipped_value_loss=True,
       clip_param=0.2,
-      entropy_coef=0.005,
+      # 0.005 let the exploration noise grow from 1.0 to ~2.5 within 80 iterations
+      # while the sparse reward gave no signal yet (first uniform run).
+      entropy_coef=0.001,
       num_learning_epochs=5,
       # Point clouds make each sample large (320 points through PointNet): with
       # 4 mini-batches the update ran out of memory at 16K envs; 16 fits (A40).
@@ -54,6 +56,10 @@ def fr3_peg_hole_ppo_runner_cfg(obs_mode: str = "pointcloud") -> RslRlOnPolicyRu
     # Weights & Biases (the default logger): runs go to this project under your
     # default W&B entity; local run files land in ./wandb/ (git-ignored by mjlab).
     wandb_project="sgs-assembly",
+    # Actions are clipped to [-1, 1] before the env: a joint target then moves at
+    # most 0.05 rad per step (1.25 rad/s). Unclipped, noisy actions of +-5 made the
+    # targets jump ~6 rad/s and most episodes ended in joint-speed failures.
+    clip_actions=1.0,
     save_interval=100,
     num_steps_per_env=24,
     max_iterations=5_000,

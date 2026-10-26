@@ -39,6 +39,16 @@ register_mjlab_task(
   runner_cls=MjlabOnPolicyRunner,
 )
 
+# Same deck and training, but episodes start from entries chosen by Success Guided
+# Sampling (paper Sec. 3.2) instead of uniformly: the method being reproduced.
+register_mjlab_task(
+  task_id="Mjlab-SGS-PegHole-FR3-Deck-SGS",
+  env_cfg=fr3_peg_hole_deck_env_cfg(sampler="sgs"),
+  play_env_cfg=fr3_peg_hole_deck_env_cfg(play=True, sampler="sgs"),
+  rl_cfg=_PC_RL,
+  runner_cls=MjlabOnPolicyRunner,
+)
+
 # Same, but the actor sees exact peg/hole poses instead (debugging / comparison).
 register_mjlab_task(
   task_id="Mjlab-SGS-PegHole-FR3-Deck-Pose",

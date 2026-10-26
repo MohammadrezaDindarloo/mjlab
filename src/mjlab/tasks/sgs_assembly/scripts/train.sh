@@ -27,6 +27,32 @@
 #  Resume an interrupted run: set RESUME_RUN to its directory name, e.g.
 #    RESUME_RUN=2026-10-26_16-00-00_uniform_16k bash .../train.sh
 #  (loads its latest model_*.pt and continues in a new run directory).
+#
+# -----------------------------------------------------------------------------
+#  Copy-paste commands (run from the repo root, ~/repos/mjlab)
+# -----------------------------------------------------------------------------
+#  Uniform baseline (paper's "Uniform"), 4 A40s x 16384 envs, 1000 iterations:
+#    sbatch --export=ALL,TASK=Mjlab-SGS-PegHole-FR3-Deck,RUN_NAME=uniform_4x16k,MAX_ITERS=1000 src/mjlab/tasks/sgs_assembly/scripts/train.sh
+#
+#  Success Guided Sampling (same everything, only the start sampling differs):
+#    sbatch --export=ALL,TASK=Mjlab-SGS-PegHole-FR3-Deck-SGS,RUN_NAME=sgs_4x16k,MAX_ITERS=1000 src/mjlab/tasks/sgs_assembly/scripts/train.sh
+#
+#  Pose-observation variant (debugging; actor sees exact poses, no point cloud):
+#    sbatch --export=ALL,TASK=Mjlab-SGS-PegHole-FR3-Deck-Pose,RUN_NAME=pose_4x16k,MAX_ITERS=1000 src/mjlab/tasks/sgs_assembly/scripts/train.sh
+#
+#  Short test (1 GPU, 3 iterations, ~5 min) before a long run:
+#    sbatch --gres=gpu:a40:1 --cpus-per-task=6 --mem=32G --time=00:30:00 --export=ALL,RUN_NAME=test,MAX_ITERS=3,NUM_ENVS=4096 src/mjlab/tasks/sgs_assembly/scripts/train.sh
+#
+#  Inside an interactive GPU job instead of sbatch:
+#    RUN_NAME=uniform_16k MAX_ITERS=1000 bash src/mjlab/tasks/sgs_assembly/scripts/train.sh
+#
+#  Watch / stop:
+#    squeue -u $USER                                   # running and queued jobs
+#    tail -f ~/slurm_logs/sgs_train_<jobid>.out         # live console (Ctrl+C to stop watching)
+#    ls ~/repos/mjlab/logs/rsl_rl/sgs_fr3_peg_hole/     # run folders with checkpoints
+#    scancel <jobid>                                   # stop a job
+#  Curves: https://wandb.ai/s2816905-the-university-of-edinburgh/sgs-assembly
+#    (Episode_Termination/success, SGS/success_rate/<family>, SGS/sample_share/<family>)
 # =============================================================================
 #SBATCH --job-name=sgs_train
 #SBATCH --partition=Open-Research

@@ -1,10 +1,8 @@
-"""(Later) Samplers that pick which reset-deck entry starts each episode.
+"""Samplers that pick which reset-deck entry starts each episode.
 
-Planned: one interface, ``sample(n) -> deck indices`` plus ``update(indices,
-success)``, with two implementations:
-- uniform sampling (baseline),
-- Success Guided Sampling (SGS): last H=100 success bits per entry, score
-  w = (p+eps)^(k*t) * (1-p+eps)^(k*(1-t)), floor max(w, eps), logits log(w+eps),
-  softmax at temperature T (manipulation: t=0.5, k=1, T=2, eps=1e-4).
-An optional Beta prior per entry (from FARO labels, see ``feasibility/``) seeds p.
+``DeckSampler`` (sampler.py) in two modes behind one interface:
+  - "uniform": every deck entry equally likely (the paper's Uniform baseline),
+  - "sgs": Success Guided Sampling (paper Sec. 3.2, Eq. 1-2, App. B.2).
+Both record each entry's last H episode outcomes. Planned: an optional Beta prior
+per entry (from FARO labels, see ``feasibility/``) to initialise p.
 """

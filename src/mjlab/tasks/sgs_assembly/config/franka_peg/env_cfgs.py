@@ -30,6 +30,7 @@ from mjlab.tasks.sgs_assembly.objects.peg_hole.peg_hole import (
 )
 from mjlab.tasks.sgs_assembly.physics_cfg import PhysicsCfg
 from mjlab.tasks.sgs_assembly.robots.franka.franka_constants import FR3_INFO
+from mjlab.tasks.sgs_assembly.sampling.sampler import SgsCfg
 from mjlab.utils.noise.noise_cfg import GaussianNoiseCfg
 
 ObsMode = Literal["pointcloud", "pose"]
@@ -162,13 +163,17 @@ def fr3_peg_hole_deck_env_cfg(
   play: bool = False,
   deck_path: str = DEFAULT_DECK_PATH,
   families: tuple[str, ...] | None = None,
+  sampler: Literal["uniform", "sgs"] = "uniform",
+  sgs: SgsCfg | None = None,
   **kwargs,
 ) -> ManagerBasedRlEnvCfg:
   """Peg-in-hole where every episode starts from a reset-deck entry.
 
   Replaces the simple resets (robot at home, upright random peg) by
   ``reset_from_deck``; robot-base and hole placement events stay. ``families``
-  (e.g. ("NEAR_GOAL",)) limits the starts to those deck families.
+  (e.g. ("NEAR_GOAL",)) limits the starts to those deck families. ``sampler``
+  picks the entries: "uniform" (paper baseline) or "sgs" (Success Guided
+  Sampling, with the paper's values in ``SgsCfg`` unless ``sgs`` is given).
   """
   cfg = fr3_peg_hole_env_cfg(play=play, **kwargs)
   del cfg.events["reset_peg_pose"], cfg.events["reset_robot_joints"]
@@ -182,6 +187,12 @@ def fr3_peg_hole_deck_env_cfg(
       "arm_joints": FR3_INFO.arm_joints,
       "finger_joints": ("finger_joint1", "finger_joint2"),
       "families": families,
+      "sampler": sampler,
+      "sgs": sgs or SgsCfg(),
     },
+  )
+  # Every step on every GPU: merge outcomes across GPUs, log family statistics.
+  cfg.events["sync_deck_outcomes"] = EventTermCfg(
+    func=events.sync_deck_outcomes, mode="step"
   )
   return cfg

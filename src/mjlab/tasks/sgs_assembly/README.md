@@ -37,7 +37,8 @@ Rules that keep this extendable:
 |---|---|
 | `Mjlab-SGS-Robot-FR3` | FR3 + hand on the table (robot checks) |
 | `Mjlab-SGS-PegHole-FR3` | + fixed hole and a free peg standing on the table |
-| `Mjlab-SGS-PegHole-FR3-Deck` | same task, every episode starts from a reset-deck entry |
+| `Mjlab-SGS-PegHole-FR3-Deck` | every episode starts from a reset-deck entry, chosen uniformly (baseline) |
+| `Mjlab-SGS-PegHole-FR3-Deck-SGS` | the same, entries chosen by Success Guided Sampling |
 | `Mjlab-SGS-PegHole-FR3-Deck-NearGoal` / `-StableGrasp` / `-Reaching` | only that deck family (to watch; Reaching = the paper's evaluation set) |
 
 ## How to run
@@ -192,8 +193,10 @@ Choices where the paper is silent:
   - Open (gripper model): while the fingers close, pad-peg penetration briefly
     reaches ~3-4 mm and the two (softly coupled) fingers differ by up to 2.4 mm;
     steady holding is ~0.5 mm. Deck states themselves have no penetration.
-- [ ] Uniform-sampling PPO baseline
-- [ ] SGS sampler
+- [ ] Uniform-sampling PPO baseline (running; first attempt diverged: unclipped
+      actions + entropy 0.005 let the noise grow; fixed with clip [-1, 1] and 0.001)
+- [x] SGS sampler (`sampling/sampler.py`, paper Eq. 1-2 / App. B.2; outcomes per
+      deck entry recorded in `mdp/events.py`, merged across GPUs; task `-Deck-SGS`)
 - [ ] Friction sweep reproducing the paper's pad-mu result (mu = 1, 2, 100)
 - [ ] Contact logging (pad-peg normal, tangential, torsion)
 - [ ] Friction-gap constraint (Lagrangian PPO)
