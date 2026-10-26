@@ -9,12 +9,18 @@ import math
 
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.managers.event_manager import EventTermCfg
-from mjlab.managers.observation_manager import ObservationTermCfg
+from mjlab.managers.observation_manager import ObservationGroupCfg, ObservationTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.tasks.sgs_assembly.env_cfg import make_assembly_env_cfg
-from mjlab.tasks.sgs_assembly.mdp import events, observations, rewards, terminations
+from mjlab.tasks.sgs_assembly.mdp import (
+  events,
+  observations,
+  point_cloud,
+  rewards,
+  terminations,
+)
 from mjlab.tasks.sgs_assembly.mdp.success import InsertionGatesCfg
 from mjlab.tasks.sgs_assembly.objects.peg_hole.peg_hole import (
   PegHoleCfg,
@@ -23,6 +29,7 @@ from mjlab.tasks.sgs_assembly.objects.peg_hole.peg_hole import (
 )
 from mjlab.tasks.sgs_assembly.physics_cfg import PhysicsCfg
 from mjlab.tasks.sgs_assembly.robots.franka.franka_constants import FR3_INFO
+from mjlab.utils.noise.noise_cfg import GaussianNoiseCfg
 
 HOLE_POS = (0.55, 0.15, 0.0)
 PEG_XY = (0.55, -0.15)
@@ -35,6 +42,7 @@ WORKSPACE_UPPER = (1.0, 0.6, 0.8)
 # Default reset deck, built by scripts/build_deck.py (path relative to the repo
 # root, like mjlab's logs/; not committed).
 DEFAULT_DECK_PATH = "logs/sgs_decks/fr3_peg_hole.npz"
+POINT_CLOUD_NOISE_STD = 0.001  # [m] per point per step (paper App. C.4).
 
 
 def _apply_play_overrides(cfg: ManagerBasedRlEnvCfg) -> None:
@@ -92,6 +100,21 @@ def fr3_peg_hole_env_cfg(
   }
   for group in ("actor", "critic"):
     cfg.observations[group].terms.update(scene_terms)
+
+  # Scene point cloud in the gripper frame (paper App. A.3.2), (N, 320, 6):
+  # xyz with 1 mm Gaussian noise during training (App. C.4) + part label.
+  cfg.observations["point_cloud"] = ObservationGroupCfg(
+    terms={
+      "xyz": ObservationTermCfg(
+        func=point_cloud.scene_point_cloud,
+        noise=GaussianNoiseCfg(std=POINT_CLOUD_NOISE_STD),
+      ),
+      "label": ObservationTermCfg(func=point_cloud.point_cloud_labels),
+    },
+    concatenate_terms=True,
+    concatenate_dim=-1,
+    enable_corruption=not play,
+  )
 
   # Success S(s): terminal, rewarded with +weights.success.
   insertion = {
