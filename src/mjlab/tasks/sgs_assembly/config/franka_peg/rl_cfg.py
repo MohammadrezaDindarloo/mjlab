@@ -27,6 +27,11 @@ def fr3_peg_hole_ppo_runner_cfg(obs_mode: str = "pointcloud") -> RslRlOnPolicyRu
         "class_name": "GaussianDistribution",
         "init_std": 1.0,
         "std_type": "scalar",
+        # Floor on the exploration noise sigma (not in the paper). With
+        # entropy_coef 0, sigma fell to 0.06 within 1750 iterations, before any
+        # Reaching start was ever solved. Above 0.2 sigma is learned from the
+        # reward only; 0.2 is +-0.01 rad per step (action scale 0.05 rad).
+        "std_range": (0.2, 1e6),
       },
     ),
     critic=model_cfg(
@@ -40,7 +45,9 @@ def fr3_peg_hole_ppo_runner_cfg(obs_mode: str = "pointcloud") -> RslRlOnPolicyRu
       clip_param=0.2,
       # 0.005 let the exploration noise grow from 1.0 to ~2.5 within 80 iterations
       # while the sparse reward gave no signal yet (first uniform run).
-      entropy_coef=0.001,
+      # The paper maximises the return only (no entropy term); 0.001 still let
+      # sigma creep up while no successes gave a signal (1.0 -> 1.3 in 240 its).
+      entropy_coef=0.0,
       num_learning_epochs=5,
       # Point clouds make each sample large (320 points through PointNet): with
       # 4 mini-batches the update ran out of memory at 16K envs; 16 fits (A40).
@@ -61,6 +68,9 @@ def fr3_peg_hole_ppo_runner_cfg(obs_mode: str = "pointcloud") -> RslRlOnPolicyRu
     # targets jump ~6 rad/s and most episodes ended in joint-speed failures.
     clip_actions=1.0,
     save_interval=100,
+    # Checkpoints stay on disk only: uploading every one to W&B would be ~2000
+    # uploads (~20 GB) per week-long run.
+    upload_model=False,
     num_steps_per_env=24,
     max_iterations=5_000,
   )

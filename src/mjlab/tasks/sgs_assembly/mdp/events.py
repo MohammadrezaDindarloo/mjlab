@@ -16,11 +16,20 @@ per-family statistics (to W&B via RSL-RL).
 
 ``families`` (e.g. ("REACHING",)) restricts the draw to those deck families,
 e.g. to watch or evaluate one family; None uses the whole deck.
+
+Hang report: ``sync_deck_outcomes`` also re-arms a timer every step. If a process
+makes no step for ``HANG_REPORT_SECONDS``, Python writes the stack of every thread
+to ``$SGS_HANG_DIR/<job>_rank<r>.txt``. With multi-GPU, a frozen GPU process
+leaves the others waiting at the next sync until NCCL aborts the job (10 min), so
+this file is the only record of where it froze.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+import faulthandler
+import os
+from pathlib import Path
+from typing import TYPE_CHECKING, Literal, TextIO
 
 import torch
 import torch.distributed as dist
@@ -34,8 +43,24 @@ if TYPE_CHECKING:
   from mjlab.envs import ManagerBasedRlEnv
 
 
+HANG_REPORT_SECONDS = 300.0
+_hang_file: TextIO | None = None
+
+
 def _multi_gpu() -> bool:
   return dist.is_available() and dist.is_initialized() and dist.get_world_size() > 1
+
+
+def _arm_hang_report() -> None:
+  """(Re)start the no-progress timer; see the module docstring."""
+  global _hang_file
+  if _hang_file is None:
+    folder = Path(os.environ.get("SGS_HANG_DIR", "logs/hang_reports"))
+    folder.mkdir(parents=True, exist_ok=True)
+    rank = dist.get_rank() if _multi_gpu() else 0
+    job = os.environ.get("SLURM_JOB_ID", "local")
+    _hang_file = open(folder / f"{job}_rank{rank}.txt", "a")  # noqa: SIM115
+  faulthandler.dump_traceback_later(HANG_REPORT_SECONDS, file=_hang_file)
 
 
 class reset_from_deck(ManagerTermBase):
@@ -181,6 +206,7 @@ def sync_deck_outcomes(
   """Step event: merge outcomes across GPUs; every ``log_every`` steps (one PPO
   rollout by default) add per-family statistics to the training log."""
   del env_ids
+  _arm_hang_report()
   term = env.event_manager.get_term_cfg(term_name).func
   assert isinstance(term, reset_from_deck)
   term.sync()
