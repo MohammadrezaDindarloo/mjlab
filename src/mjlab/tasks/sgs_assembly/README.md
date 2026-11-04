@@ -178,8 +178,10 @@ Choices where the paper is silent:
         strict-priority null-space projection), picks the least-wrist-turn
         equivalent grasp, and rejects joints beyond 90 % of their range and arm
         self-collision. Before: 10 % of states had a joint at its limit; now 0 %.
-  - [x] 6b: Stable Grasp family: peg above the hole (tip 2-12 cm above the
-        entrance, +-5 cm, tilt <= 15 deg), end grasp on its top end randomised
+  - [x] 6b: Stable Grasp family: peg upright on the hole axis, tip from 3 mm
+        (top of Near-Goal) to 12 cm above the entrance, any yaw (until
+        2026-11-04 also +-5 cm sideways and <= 15 deg tilt: not in the paper, and
+        no start was ever solved), end grasp on its top end randomised
         (+-6 mm along, +-3 mm across, +-10 deg in the pad plane), fingers
         0.2-3 mm wider than the peg. 100 % of candidates kept; with the gripper
         closed, 100/100 pegs held (median 0.7 mm slip in 2 s).

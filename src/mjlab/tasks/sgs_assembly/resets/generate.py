@@ -32,9 +32,11 @@ at a higher z position than Near-Goal, and uses the same task-specific grasp set
 with a randomized gripper aperture", where that setup is "position the
 end-effector around a task-specific grasp point using inverse kinematics,
 randomizing its position, orientation, and gripper aperture". Our reading:
-  - peg: tip ``STABLE_TIP_HEIGHT`` above the hole entrance, within
-    ``STABLE_XY`` of the hole axis, tilted up to ``STABLE_TILT`` in a random
-    direction, any yaw;
+  - peg: upright on the hole axis ("above the assembly target"), any yaw, tip
+    from the top of Near-Goal (path fraction 1.1, 3 mm above the entrance) up to
+    ``STABLE_TIP_HEIGHT_MAX`` ("a higher z position than Near-Goal"). Earlier
+    versions also offset the peg up to 5 cm sideways and tilted it up to 15 deg:
+    not in the paper, and with them no start was ever solved (2026-11-04);
   - task-specific grasp: the end grasp on the peg's *upper* end, gripper from
     above (the grasp that can insert: fingers stay above the hole walls),
     randomised by ``GRASP_NOISE_*`` around its nominal pose, least-wrist-turn
@@ -81,9 +83,7 @@ ARM_CLEARANCE = 0.005  # [m]
 POSTURE_NOISE = 0.3  # [rad] spread of the preferred arm posture around home.
 MAX_JOINT_RANGE_FRACTION = 0.9  # Of the half-range from the soft-limit midpoint.
 # Stable Grasp peg pose (relative to the hole) and the task-specific grasp noise.
-STABLE_TIP_HEIGHT = (0.02, 0.12)  # [m] peg tip above the hole entrance.
-STABLE_XY = 0.05  # [m] max offset of the peg tip from the hole axis, per axis.
-STABLE_TILT = math.radians(15.0)  # Max peg tilt from vertical.
+STABLE_TIP_HEIGHT_MAX = 0.12  # [m] peg tip above the hole entrance (our choice).
 GRASP_NOISE_ALONG = 0.006  # [m] TCP along the peg axis (around END_GRASP_DEPTH).
 GRASP_NOISE_ACROSS = 0.003  # [m] TCP along the pad width (x_hand).
 GRASP_NOISE_ROT = math.radians(10.0)  # Hand rotation about the pad normal (y_hand).
@@ -234,16 +234,12 @@ class DeckBuilder:
     tries = 0
     while len(rows) < n:
       tries += 1
-      quat, rot = self._tilted_upright(rng, STABLE_TILT)
-      axis = rot[:, 2] * (1.0 if rot[2, 2] >= 0 else -1.0)  # Peg axis, pointing up.
-      tip = self.hole_pos + np.array(
-        [
-          rng.uniform(-STABLE_XY, STABLE_XY),
-          rng.uniform(-STABLE_XY, STABLE_XY),
-          self.cfg.hole_depth + rng.uniform(*STABLE_TIP_HEIGHT),
-        ]
-      )
-      pos = tip + self.cfg.peg_length / 2 * axis
+      quat, rot = self._tilted_upright(rng, 0.0)
+      # Lowest tip height: the top of the Near-Goal range (fraction 1.1).
+      near_goal_top = NEAR_GOAL_FRACTION[1] * self.cfg.hole_depth
+      tip_z = rng.uniform(near_goal_top, self.cfg.hole_depth + STABLE_TIP_HEIGHT_MAX)
+      tip = self.hole_pos + np.array([0.0, 0.0, tip_z])
+      pos = tip + np.array([0.0, 0.0, self.cfg.peg_length / 2])
       tcp_pos, tcp_rot = self._task_grasp(pos, rot, rng)
       finger_q = self.cfg.peg_width / 2 + rng.uniform(*GRASP_GAP)
       arm_q = self._place_arm(tcp_pos, tcp_rot, finger_q, pos, quat, rng)
