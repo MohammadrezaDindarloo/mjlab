@@ -196,6 +196,8 @@ def collision_cfg(contact: ContactCfg, arm_collisions: bool) -> CollisionCfg:
     condim={PAD_GEOMS: contact.pad.condim, ".*": contact.robot.condim},
     priority=0,
     friction={PAD_GEOMS: contact.pad.friction, ".*": contact.robot.friction},
+    solref={PAD_GEOMS: contact.pad.solref, ".*": contact.robot.solref},
+    solimp={PAD_GEOMS: contact.pad.solimp, ".*": contact.robot.solimp},
   )
 
 

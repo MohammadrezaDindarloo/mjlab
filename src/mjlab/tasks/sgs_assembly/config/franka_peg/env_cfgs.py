@@ -14,6 +14,7 @@ from mjlab.managers.observation_manager import ObservationGroupCfg, ObservationT
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
+from mjlab.sensor import ContactMatch, ContactSensorCfg
 from mjlab.tasks.sgs_assembly.env_cfg import make_assembly_env_cfg
 from mjlab.tasks.sgs_assembly.mdp import (
   events,
@@ -47,6 +48,10 @@ WORKSPACE_UPPER = (1.0, 0.6, 0.8)
 # root, like mjlab's logs/; not committed).
 DEFAULT_DECK_PATH = "logs/sgs_decks/fr3_peg_hole.npz"
 POINT_CLOUD_NOISE_STD = 0.001  # [m] per point per step (paper App. C.4).
+# Peg-hole overlap that counts as passing through the walls (failure) [m]. With
+# physics_cfg's contacts a 100 N push overlaps ~0.1 mm; the old soft contacts
+# let the trained policy sink the peg 14-19 mm into the walls.
+MAX_PEG_HOLE_PENETRATION = 0.002
 
 
 def _apply_play_overrides(cfg: ManagerBasedRlEnvCfg) -> None:
@@ -150,7 +155,28 @@ def fr3_peg_hole_env_cfg(
       "upper": WORKSPACE_UPPER,
     },
   )
-  cfg.rewards["failure"].params["term_names"] += ("peg_out_of_bounds",)
+  # Failure: peg sunk into the hole walls (see MAX_PEG_HOLE_PENETRATION).
+  cfg.scene.sensors += (
+    ContactSensorCfg(
+      name="peg_hole_contact",
+      primary=ContactMatch(mode="body", pattern="hole", entity="hole"),
+      secondary=ContactMatch(mode="body", pattern="peg", entity="peg"),
+      fields=("found", "dist"),
+      reduce="mindist",
+      num_slots=1,
+    ),
+  )
+  cfg.terminations["peg_hole_penetration"] = TerminationTermCfg(
+    func=terminations.contact_penetration,
+    params={
+      "sensor_name": "peg_hole_contact",
+      "max_depth": MAX_PEG_HOLE_PENETRATION,
+    },
+  )
+  cfg.rewards["failure"].params["term_names"] += (
+    "peg_out_of_bounds",
+    "peg_hole_penetration",
+  )
 
   cfg.events["reset_peg_pose"].params["pose_range"] = dict(PEG_RESET_RANGE)
 

@@ -14,6 +14,17 @@ condim: 3 = sliding friction only, 4 = + torsional (spin about the contact norma
 6 = + rolling. Torsional friction (needed for the friction-gap |tau_z| term) only
 exists for condim >= 4. Its coefficient has units of length: max torsion is
 torsional * f_n.
+
+Contact stiffness (solref/solimp; averaged when two geoms touch): MuJoCo contacts
+are soft, and the overlap a force F causes grows like F / (object mass x
+stiffness). With MuJoCo's defaults (solref 0.02, solimp dmax 0.95) and dt = 5 ms,
+the 50 g peg went through the 10 mm hole walls at the ~20 N the arm pushes with
+(measured in rollouts: median 22 N, 99th percentile 90 N), and PPO learned to
+insert through the walls. A peg pushed into a wall alone:
+  dt 5 ms, any stiffness       -> through at 50 N
+  dt 2 ms, solref 4 ms, dmax .999 -> 0.11 mm at 100 N, through at 200 N
+  dt 1 ms, same                -> 0.05 mm at 200 N
+We use dt = 2 ms plus a penetration failure term for the rare larger pushes.
 """
 
 from dataclasses import dataclass, field
@@ -30,6 +41,11 @@ class SurfaceCfg:
   torsional: float = 0.005
   rolling: float = 0.0001
   condim: Literal[1, 3, 4, 6] = 3
+  # (timeconst, dampratio): stiffer than MuJoCo's (0.02, 1). MuJoCo raises
+  # timeconst to 2 x timestep if it is smaller, so keep it at 2 x SolverCfg.timestep.
+  solref: tuple[float, float] = (0.004, 1.0)
+  # (dmin, dmax, width, midpoint, power): impedance near 1 = nearly hard contact.
+  solimp: tuple[float, float, float, float, float] = (0.99, 0.999, 0.001, 0.5, 2.0)
 
   @property
   def friction(self) -> tuple[float, float, float]:
@@ -57,11 +73,12 @@ class ContactCfg:
 class SolverCfg:
   """MuJoCo solver and timing settings.
 
-  Control rate = 1 / (timestep * decimation) = 25 Hz with the defaults, as in SGS.
+  Control rate = 1 / (timestep * decimation) = 25 Hz, as in SGS. The paper uses
+  5 ms x 8; MuJoCo's soft contacts need 2 ms x 20 here (see the module docstring).
   """
 
-  timestep: float = 0.005
-  decimation: int = 8
+  timestep: float = 0.002
+  decimation: int = 20
   integrator: Literal["euler", "implicitfast"] = "implicitfast"
   # Elliptic cones model the friction cone exactly (pyramidal approximates it with
   # facets). impratio > 1 makes friction stiffer relative to the normal direction,

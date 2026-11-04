@@ -58,6 +58,8 @@ def make_assembly_env_cfg(
         condim=contact.table.condim,
         priority=0,
         friction=contact.table.friction,
+        solref=contact.table.solref,
+        solimp=contact.table.solimp,
       ),
     ),
   )

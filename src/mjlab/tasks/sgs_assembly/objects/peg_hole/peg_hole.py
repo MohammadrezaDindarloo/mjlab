@@ -121,6 +121,8 @@ def peg_entity_cfg(
         condim=contact.object.condim,
         priority=0,
         friction=contact.object.friction,
+        solref=contact.object.solref,
+        solimp=contact.object.solimp,
       ),
     ),
   )
@@ -140,6 +142,8 @@ def hole_entity_cfg(
         condim=contact.fixture.condim,
         priority=0,
         friction=contact.fixture.friction,
+        solref=contact.fixture.solref,
+        solimp=contact.fixture.solimp,
       ),
     ),
   )
