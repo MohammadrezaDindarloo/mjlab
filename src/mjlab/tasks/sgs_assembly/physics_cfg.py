@@ -73,12 +73,13 @@ class ContactCfg:
 class SolverCfg:
   """MuJoCo solver and timing settings.
 
-  Control rate = 1 / (timestep * decimation) = 25 Hz, as in SGS. The paper uses
-  5 ms x 8; MuJoCo's soft contacts need 2 ms x 20 here (see the module docstring).
+  Control rate = 1 / (timestep * decimation) = 10 Hz, the rate of SGS's
+  insertion experiments (UR5e with operational-space control, following
+  OmniReset). MuJoCo's soft contacts need the 2 ms step (see the module docstring).
   """
 
   timestep: float = 0.002
-  decimation: int = 20
+  decimation: int = 50
   integrator: Literal["euler", "implicitfast"] = "implicitfast"
   # Elliptic cones model the friction cone exactly (pyramidal approximates it with
   # facets). impratio > 1 makes friction stiffer relative to the normal direction,

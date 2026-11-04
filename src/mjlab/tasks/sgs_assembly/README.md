@@ -51,7 +51,7 @@ uv run python src/mjlab/tasks/sgs_assembly/scripts/inspect_scene.py \
 uv run pytest src/mjlab/tasks/sgs_assembly/tests       # not part of `make test`
 uv run python src/mjlab/tasks/sgs_assembly/scripts/grasp_friction.py --verbose
 uv run python src/mjlab/tasks/sgs_assembly/scripts/run_agents.py   # see docstring
-# Scripted pick-and-place (IK + state machine), watch it or get statistics:
+# Scripted pick-and-place (state machine on the OSC action), watch or get stats:
 uv run python src/mjlab/tasks/sgs_assembly/scripts/scripted_insert.py --viewer
 uv run python src/mjlab/tasks/sgs_assembly/scripts/scripted_insert.py
 # Reset deck -> logs/sgs_decks/fr3_peg_hole.npz, then watch episodes start from it:
@@ -74,15 +74,16 @@ uv run play Mjlab-SGS-PegHole-FR3-Deck --agent zero --viewer viser
 ## Scripted insertion demo
 
 `scripts/scripted_insert.py` grasps the peg and inserts it through real contact,
-using `robots/ik.py` (damped least-squares IK, reused later by the reset deck)
-and the same 8-D action a policy outputs. 64 envs x 40 s: 223 / 236 episodes
-succeed (94 %), ~9 s each. Lessons:
-- A velocity step (0 -> 0.25 m/s in one control step) made ~25 % of grasps drop
-  the peg; an acceleration limit (0.5 m/s^2) brought that to ~6 %.
-- The remaining drops are not friction-limited (|f_t|/f_n <= 0.7 vs mu = 2): the
-  peg slowly rotates in the grasp, the soft pad contacts penetrate unequally
-  (~1.0 vs ~0.3 mm), and at ~4.5 deg the peg is squeezed out. Contact stiffness
-  (solref/solimp on the pads) is the open physics question here.
+with the same 7-D action a policy outputs (6 relative Cartesian increments for
+the OSC + gripper, each in [-1, 1]). 32 envs x 120 s (2026-11-04): 92 / 92
+episodes succeed, ~39 s each (slow on purpose: 4 cm/s moves, 1 cm/s insertion).
+Lessons:
+- The OSC is a pure spring (as in OmniReset): a constant load leaves a constant
+  error (peg weight / Kp = 2.4 mm), so the script adds an integral term to its
+  command, as a policy learns to. Without it the script never aligned to 0.3 mm.
+- Full action moves the TCP at ~4.7 cm/s (Kp * scale / Kd = 200 * 0.02 / 85).
+- Earlier, with joint-position control and soft contacts: 94 %, the misses being
+  pegs that rotated out of the grasp; stiff contacts + compliant OSC removed them.
 
 ## Training (PPO)
 
@@ -143,18 +144,24 @@ iterations, plus `params/` with the run's exact configs); curves: W&B project
 
 | | Definition | Where |
 |---|---|---|
-| Action (8) | arm: delta joint targets, `q* += 0.05 rad * a`; gripper: binary, `a > 0` open | `mdp/actions.py` |
-| Actor obs (53) | joint pos, EE pose in base, previous action, peg & hole in EE frame, peg in hole frame | `mdp/observations.py` |
-| Critic obs (62) | actor + joint velocities | `env_cfg.py` |
+| Action (7) | arm: relative Cartesian OSC at 10 Hz, `x* = x + (0.02 m, 0.02 rad, rz 0.2 rad) * a`, `tau = J^T (Kp e - Kd xd)`; gripper: binary, `a > 0` open | `mdp/actions.py` |
+| Actor obs (52, pose mode; 25 + point cloud by default) | joint pos, EE pose in base, previous action, peg & hole in EE frame, peg in hole frame | `mdp/observations.py` |
+| Critic obs (61) | actor + joint velocities | `env_cfg.py` |
 | Success S | tilt <= 5 deg, lateral <= 3 mm, depth >= 25 mm (either peg end; yaw free) | `mdp/success.py` |
-| Failure F | arm joint speed > 2x limit, or peg outside workspace box | `mdp/terminations.py` |
+| Failure F | arm joint speed > 2x limit, peg outside workspace box, or peg > 2 mm into the hole walls (ours) | `mdp/terminations.py` |
 | Reward (Eq. 5) | `100*1[S] - 1*1[F] - 1e-5*C(a^2) - 1e-4*C(da^2) - 1e-4*C(qd_arm^2)` | `mdp/rewards.py` |
-| Episode end | S, F (terminal) or 10 s time-out | `env_cfg.py` |
+| Episode end | S, F (terminal) or 16 s time-out (OmniReset) | `env_cfg.py` |
 | Reset | robot home; peg upright, +-0.1 m in x/y, any yaw | `config/franka_peg/` |
 
 Choices where the paper is silent:
-- **Delta arm targets** (not "home + scale * a"), so a zero action holds the pose
-  and reset-deck states far from home are not undone on the first step.
+- **Control interface** of SGS's insertion experiments (UR5e, following
+  OmniReset): relative Cartesian OSC at 10 Hz, gains and scales from OmniReset's
+  released code (the SGS Franka used joint-position control; App. B.5 blames it
+  for slower learning). The target is re-anchored at the measured pose every
+  step, so a zero action holds and pushing never winds up.
+- **Ours, for the 7-joint FR3:** a null-space posture spring (10 Nm/rad) toward
+  the posture at reset; arm joint dry friction off (OmniReset's first training
+  stage has none; with it the soft OSC stalls on small actions).
 - **Pose observations in the gripper frame** stand in for the point cloud; poses
   use position + the first two rotation-matrix columns (continuous).
 - With `--agent zero` the gripper *closes* (binary command, `a = 0` means close).

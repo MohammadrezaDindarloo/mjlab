@@ -132,7 +132,7 @@ def main(
   cfg = load_env_cfg(task, play=True)
   cfg.scene.num_envs = num_envs
   if agent == "scripted":
-    cfg.episode_length_s = 20.0  # The script needs ~9 s per insertion.
+    cfg.episode_length_s = 60.0  # The script needs ~40 s per insertion.
   env = ManagerBasedRlEnv(cfg, device="cuda:0")
   wrapped = RslRlVecEnvWrapper(env)
   shape = (num_envs, env.action_manager.total_action_dim)

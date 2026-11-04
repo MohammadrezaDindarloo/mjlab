@@ -55,22 +55,28 @@ def test_success_gates_and_reward(env):
   peg.write_root_link_velocity_to_sim(torch.zeros(env.num_envs, 6, device=env.device))
   env.sim.forward()
 
-  _, reward, terminated, _, _ = env.step(_hold(env))
-
-  success = env.termination_manager.get_term("success").tolist()
+  # The gates on the frozen poses: one policy step (0.1 s) would let the free
+  # "hovering" and "10mm_in" pegs fall into the hole.
+  term = env.termination_manager.get_term_cfg("success")
+  success = term.func(env, **term.params).tolist()
   expected = [c[1] for c in CASES.values()]
   assert success == expected, dict(zip(CASES, success, strict=True))
-  assert terminated.tolist() == expected
+
+  # Reward and termination after one step, for the poses that stay put.
+  _, reward, terminated, _, _ = env.step(_hold(env))
   # The only nonzero penalty is 1e-5 * ||a||^2 = 1e-5 (open-gripper action = 1).
-  for i, ok in enumerate(expected):
-    assert reward[i].item() == pytest.approx(100.0 if ok else 0.0, abs=1e-3)
+  for i, name in enumerate(CASES):
+    if name in ("seated", "beside"):
+      assert terminated[i].item() == CASES[name][1]
+      ok = CASES[name][1]
+      assert reward[i].item() == pytest.approx(100.0 if ok else 0.0, abs=1e-3)
 
 
 @pytest.mark.parametrize("agent", ["zero", "random"])
 def test_agents_run_without_nans_or_failures(env, agent):
   env.reset()
   robot = env.scene["robot"]
-  for _ in range(75):  # 3 s at 25 Hz.
+  for _ in range(30):  # 3 s at 10 Hz.
     a = torch.zeros(
       env.num_envs, env.action_manager.total_action_dim, device=env.device
     )

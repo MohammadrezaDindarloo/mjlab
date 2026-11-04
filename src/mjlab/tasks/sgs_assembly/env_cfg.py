@@ -39,7 +39,7 @@ def make_assembly_env_cfg(
   physics: PhysicsCfg,
   objects: dict[str, EntityCfg] | None = None,
   weights: rewards.SgsRewardWeights | None = None,
-  episode_length_s: float = 10.0,
+  episode_length_s: float = 16.0,
 ) -> ManagerBasedRlEnvCfg:
   objects = objects or {}
   weights = weights or rewards.SgsRewardWeights()
@@ -143,10 +143,11 @@ def make_assembly_env_cfg(
     decimation=physics.solver.decimation,
     episode_length_s=episode_length_s,
     actions={
-      "arm": actions.DeltaJointPositionActionCfg(
+      "arm": actions.RelativeCartesianOscActionCfg(
         entity_name="robot",
         joint_names=robot.arm_joints,
-        scale=robot.arm_action_scale,
+        site_name=robot.ee_site,
+        gains=robot.arm_osc,
       ),
       "gripper": actions.BinaryGripperActionCfg(
         entity_name="robot",
@@ -163,7 +164,7 @@ def make_assembly_env_cfg(
     rewards=reward_terms,
     terminations=terms,
     # Eq. 5 is a per-step reward (+100 on success); mjlab would otherwise multiply
-    # every reward term by step_dt (= 0.04 s).
+    # every reward term by step_dt (= 0.1 s).
     scale_rewards_by_dt=False,
     viewer=ViewerConfig(
       origin_type=ViewerConfig.OriginType.ASSET_BODY,

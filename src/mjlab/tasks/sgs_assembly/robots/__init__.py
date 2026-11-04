@@ -8,6 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from mjlab.entity import EntityCfg
+from mjlab.tasks.sgs_assembly.mdp.actions import OscGains
 from mjlab.tasks.sgs_assembly.physics_cfg import ContactCfg
 
 
@@ -20,8 +21,8 @@ class RobotInfo:
   arm_joint_vel_limits: tuple[float, ...]
   """Hardware velocity limit per arm joint [rad/s], same order as ``arm_joints``
   (MuJoCo does not store these)."""
-  arm_action_scale: float
-  """Joint-target change per policy step for action 1 [rad]."""
+  arm_osc: OscGains
+  """Relative Cartesian OSC gains and action scales for this arm."""
   gripper_joint: str
   """The actuated gripper joint."""
   gripper_open: float

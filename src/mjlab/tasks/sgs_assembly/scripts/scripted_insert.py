@@ -1,10 +1,11 @@
 """Scripted pick-and-place: the FR3 grasps the peg and inserts it in the hole.
 
 Not a learned policy: a hand-written state machine that uses privileged state
-(peg pose) and IK. Its job is to show the task is solvable with this gripper,
+(peg pose). Its job is to show the task is solvable with this gripper,
 clearance and friction through real dynamics, and that success fires from real
-contact. It talks to the env through the same 8-D action a policy would output
-(7 delta joint targets + binary gripper), so it also exercises the action terms.
+contact. It talks to the env through the same 7-D action a policy would output
+(6 relative Cartesian increments for the OSC + binary gripper, each in [-1, 1]),
+so it also exercises the action terms.
 
 Phases (TCP = tool-centre point between the fingertips, gripper pointing down):
   APPROACH   TCP 10 cm above the grasp point, gripper open, yaw aligned to a peg face
@@ -17,17 +18,20 @@ Phases (TCP = tool-centre point between the fingertips, gripper pointing down):
   INSERT     lower the peg tip slowly along the hole axis until success ends the
              episode (the env then resets and the script starts over)
 Every step the commanded TCP moves toward the phase goal with capped speed and
-acceleration, IK turns it into joint targets, and the action is
-(q_ik - q_target) / scale, scaled down uniformly if any joint exceeds 1.
+acceleration; the action is (commanded - measured TCP pose) / OSC scale, scaled
+down uniformly into [-1, 1]. Speeds stay below what the OSC delivers at a full
+action (~4.7 cm/s, ~0.17 rad/s: Kp * scale / Kd). The OSC is a pure spring, so
+a constant load leaves a constant error (peg weight / Kp = 2.4 mm); the script
+adds the integral of its pose error to the action (KI), as a policy learns to.
 
-Result (64 envs x 40 s): ~94 % of episodes succeed in ~9 s. The rest drop the peg
-during LIFT: the peg slowly rotates in the grasp, the two pads penetrate it
-unequally (~1.0 vs ~0.3 mm, soft contacts), and at ~4.5 deg tilt it is squeezed
-out. Friction is never the limit (|f_t|/f_n <= 0.7 << mu = 2).
+Result (32 envs x 120 s, OSC at 10 Hz, 2026-11-04): 92/92 episodes succeed,
+~39 s each (the script is deliberately slow: 4 cm/s moves, 1 cm/s insertion).
+No drops, no penetration failures. (With joint-position control and the old
+soft contacts: ~94 %, drops from the peg rotating out of the grasp.)
 
   # Watch it (viewer starts paused: press play in the viser panel).
   uv run python src/mjlab/tasks/sgs_assembly/scripts/scripted_insert.py --viewer
-  # Headless: success statistics over 16 envs x 30 s.
+  # Headless: success statistics over 16 envs x 120 s.
   uv run python src/mjlab/tasks/sgs_assembly/scripts/scripted_insert.py
 """
 
@@ -44,7 +48,7 @@ from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg
 from mjlab.tasks.sgs_assembly.config.franka_peg.env_cfgs import HOLE_POS
-from mjlab.tasks.sgs_assembly.mdp.actions import DeltaJointPositionAction
+from mjlab.tasks.sgs_assembly.mdp.actions import RelativeCartesianOscAction
 from mjlab.tasks.sgs_assembly.objects.peg_hole.peg_hole import PegHoleCfg
 from mjlab.tasks.sgs_assembly.robots.franka.franka_constants import FR3_INFO
 from mjlab.tasks.sgs_assembly.robots.ik import SiteIK
@@ -57,15 +61,17 @@ GRASP_BELOW_TOP = 0.02  # [m] TCP below the peg's top end when grasping.
 APPROACH_HEIGHT = 0.10  # [m]
 LIFT_Z = 0.25  # [m]
 HOVER = 0.02  # [m] peg tip above the hole entrance before inserting.
-SPEED_FAST = 0.25  # [m/s] commanded TCP speed.
-SPEED_INSERT = 0.03  # [m/s]
-YAW_RATE = 1.5  # [rad/s]
+SPEED_FAST = 0.04  # [m/s] commanded TCP speed.
+SPEED_INSERT = 0.01  # [m/s]
+YAW_RATE = 0.15  # [rad/s]
 # Acceleration limits. Without them the command jumps from 0 to full speed in
 # one step, and the shaking makes ~25 % of grasps drop the peg (see README).
 ACCEL = 0.5  # [m/s^2]
 YAW_ACCEL = 2.0  # [rad/s^2]
 CLOSE_TIME = 0.5  # [s]
 REACHED = 0.003  # [m] measured TCP within this of the command = "arrived".
+KI = 2.0  # [1/s] integral gain on the commanded-vs-measured pose error.
+I_MAX = 0.01  # [m or rad] cap on the integrated error per axis.
 ALIGNED = 0.0003  # [m] peg tip within this of the hole axis before inserting.
 
 
@@ -87,6 +93,7 @@ class EnvState:
   cmd_vel: np.ndarray = field(default_factory=lambda: np.zeros(3))
   cmd_yaw: float = 0.0
   cmd_yaw_rate: np.ndarray = field(default_factory=lambda: np.zeros(1))
+  err_integral: np.ndarray = field(default_factory=lambda: np.zeros(6))
   grasp_pos: np.ndarray | None = None
   grasp_yaw: float = 0.0
 
@@ -124,6 +131,15 @@ def yaw_of(rot: np.ndarray) -> float:
   return math.atan2(rot[1, 0], rot[0, 0])
 
 
+def rotvec(rot: np.ndarray) -> np.ndarray:
+  """Axis-angle vector of a rotation matrix."""
+  angle = math.acos(float(np.clip((np.trace(rot) - 1.0) / 2.0, -1.0, 1.0)))
+  if angle < 1e-9:
+    return np.zeros(3)
+  w = np.array([rot[2, 1] - rot[1, 2], rot[0, 2] - rot[2, 0], rot[1, 0] - rot[0, 1]])
+  return angle / (2.0 * math.sin(angle)) * w
+
+
 def rot_z(yaw: float) -> np.ndarray:
   c, s = math.cos(yaw), math.sin(yaw)
   return np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
@@ -135,9 +151,8 @@ class ScriptedInsertPolicy:
     self.dt = env.step_dt
     self.n = env.num_envs
     arm = env.action_manager.get_term("arm")
-    assert isinstance(arm, DeltaJointPositionAction)
-    self.arm = arm
-    self.scale = arm.cfg.scale
+    assert isinstance(arm, RelativeCartesianOscAction)
+    self.scale = np.array(arm.cfg.gains.scale)
     joints = [f"robot/fr3_joint{i}" for i in range(1, 8)]
     self.ik = SiteIK(env.sim.mj_model, f"robot/{FR3_INFO.ee_site}", joints)
     home = env.scene["robot"].data.default_joint_pos[0, :7].cpu().numpy()
@@ -160,13 +175,12 @@ class ScriptedInsertPolicy:
       "tcp_rot": matrix_from_quat(robot.site_quat_w[:, site]).cpu().numpy(),
       "peg": (peg.root_link_pos_w - origins).cpu().numpy(),
       "peg_rot": matrix_from_quat(peg.root_link_quat_w).cpu().numpy(),
-      "q_target": self.arm.target.cpu().numpy(),
     }
 
   def __call__(self, obs) -> torch.Tensor:
     del obs  # Uses privileged state instead.
     m = self._measure()
-    actions = np.zeros((self.n, 8), dtype=np.float32)
+    actions = np.zeros((self.n, 7), dtype=np.float32)
     for i, st in enumerate(self.states):
       tcp, tcp_rot = m["tcp"][i], m["tcp_rot"][i]
       hand_yaw = yaw_of(tcp_rot @ self.rot_home.T)
@@ -199,13 +213,14 @@ class ScriptedInsertPolicy:
       )
       self._advance(st, arrived, peg_tip)
 
-      q_target = m["q_target"][i]
-      q_des, _ = self.ik.solve(q_target, st.cmd_pos, rot_z(st.cmd_yaw) @ self.rot_home)
-      # Scale the whole arm action uniformly into [-1, 1]. Clipping joints one by
-      # one would change the joint-space direction and tilt the hand off its path.
-      a_arm = (q_des - q_target) / self.scale
-      actions[i, :7] = a_arm / max(1.0, float(np.abs(a_arm).max()))
-      actions[i, 7] = grip
+      # Pose error to the command (robot base = world orientation here), as a
+      # 6D increment; scale it uniformly into [-1, 1] so its direction is kept.
+      rot_err = rot_z(st.cmd_yaw) @ self.rot_home @ tcp_rot.T
+      err = np.concatenate([st.cmd_pos - tcp, rotvec(rot_err)])
+      st.err_integral = np.clip(st.err_integral + err * self.dt, -I_MAX, I_MAX)
+      a_arm = (err + KI * st.err_integral) / self.scale
+      actions[i, :6] = a_arm / max(1.0, float(np.abs(a_arm).max()))
+      actions[i, 6] = grip
     return torch.from_numpy(actions).to(self.env.device)
 
   def _phase_goal(self, st, tcp, hand_yaw, peg_c, peg_rot, peg_tip):
@@ -253,16 +268,16 @@ class ScriptedInsertPolicy:
       st.phase, st.timer = nxt, 0.0
 
 
-def main(viewer: bool = False, num_envs: int = 16, seconds: float = 30.0) -> None:
+def main(viewer: bool = False, num_envs: int = 16, seconds: float = 120.0) -> None:
   """Args:
   viewer: Open the viser viewer instead of running headless statistics.
   num_envs: Parallel envs.
   seconds: Sim time for the headless run.
   """
   cfg = load_env_cfg("Mjlab-SGS-PegHole-FR3")
-  # The script needs ~9 s per insertion; the training time-out (10 s) would cut
-  # slow runs off, so give the demo more time. This does not change the task.
-  cfg.episode_length_s = 20.0
+  # The script needs ~40 s per insertion; the training time-out (16 s) would cut
+  # it off, so give the demo more time. This does not change the task.
+  cfg.episode_length_s = 60.0
   cfg.scene.num_envs = num_envs if not viewer else min(num_envs, 4)
   env = ManagerBasedRlEnv(cfg, device="cuda:0")
   wrapped = RslRlVecEnvWrapper(env)

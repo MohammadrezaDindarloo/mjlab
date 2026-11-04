@@ -73,15 +73,30 @@ def _peg_in_hand(m: mujoco.MjModel, d: mujoco.MjData) -> np.ndarray:
   return R.T @ (d.xpos[m.body("peg/peg").id] - d.xpos[hand])
 
 
+def ARM_QADR(m: mujoco.MjModel) -> np.ndarray:
+  return np.array(
+    [m.jnt_qposadr[m.joint(f"robot/fr3_joint{i}").id] for i in range(1, 8)]
+  )
+
+
+def _hold_arm(m: mujoco.MjModel, d: mujoco.MjData, q0: np.ndarray) -> None:
+  """Joint PD torques (kp 4500, kv 450 Nm/rad, menagerie's FR3 position gains) on
+  the arm's motor actuators, so pulling the peg cannot drag the hand along."""
+  qadr = ARM_QADR(m)
+  dadr = [m.jnt_dofadr[m.joint(f"robot/fr3_joint{i}").id] for i in range(1, 8)]
+  for k in range(7):
+    act = m.actuator(f"robot/fr3_joint{k + 1}").id
+    d.ctrl[act] = 4500.0 * (q0[k] - d.qpos[qadr[k]]) - 450.0 * d.qvel[dadr[k]]
+
+
 def run(pad_mu: float, ramp: float, verbose: bool) -> None:
   m, d = _build(pad_mu)
   mujoco.mj_resetDataKeyframe(m, d, 0)
   mujoco.mj_forward(m, d)
 
-  # Hold the arm where it is; open the gripper.
-  for i in range(m.nu):
-    joint = m.actuator_trnid[i, 0]
-    d.ctrl[i] = d.qpos[m.jnt_qposadr[joint]]
+  # The arm is torque-controlled: hold it where it is with a stiff joint PD
+  # computed before every step (_hold_arm); open the gripper.
+  arm_q0 = d.qpos[ARM_QADR(m)].copy()
   grip = m.actuator("robot/finger_joint1").id
   d.ctrl[grip] = 0.04
 
@@ -104,6 +119,7 @@ def run(pad_mu: float, ramp: float, verbose: bool) -> None:
   # Close and settle.
   d.ctrl[grip] = 0.0
   for _ in range(int(1.0 / m.opt.timestep)):
+    _hold_arm(m, d, arm_q0)
     mujoco.mj_step(m, d)
   contacts = _pad_peg_contacts(m, d)
   fn_total = sum(c["fn"] for c in contacts)
@@ -133,6 +149,7 @@ def run(pad_mu: float, ramp: float, verbose: bool) -> None:
   while ramp * t < 3.0 * predicted + 10.0:
     force = ramp * t
     d.xfrc_applied[peg_body, 2] = -force
+    _hold_arm(m, d, arm_q0)
     mujoco.mj_step(m, d)
     t += m.opt.timestep
     p = _peg_in_hand(m, d)

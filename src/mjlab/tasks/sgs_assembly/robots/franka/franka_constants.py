@@ -16,8 +16,9 @@ from pathlib import Path
 
 import mujoco
 
-from mjlab.actuator import BuiltinPositionActuatorCfg
+from mjlab.actuator import BuiltinMotorActuatorCfg, BuiltinPositionActuatorCfg
 from mjlab.entity import EntityArticulationInfoCfg, EntityCfg
+from mjlab.tasks.sgs_assembly.mdp.actions import OscGains
 from mjlab.tasks.sgs_assembly.physics_cfg import ContactCfg
 from mjlab.tasks.sgs_assembly.robots import RobotInfo
 from mjlab.utils.spec_config import CollisionCfg
@@ -39,6 +40,11 @@ ARM_GEOMS = r"fr3_link[0-7]_collision"  # Convex-hull meshes of the arm links.
 EE_SITE = "gripper"  # TCP between the fingertips, 0.1 m below the hand base.
 
 GRAVITY_COMPENSATION = True  # Mimic the Franka controller (see get_spec).
+# Joint dry friction (fr3.xml frictionloss, 0.25-1.14 Nm). Off: OmniReset's first
+# training stage, which SGS's insertion setup follows, trains without identified
+# joint friction. With it, the soft OSC (4 N at a full 2 cm step) stalls on small
+# actions. Joint damping and armature stay.
+ARM_JOINT_FRICTION = False
 
 # Box classes in mjx_hand.xml -> our names. Class 4 is the fingertip pad.
 _FINGER_BOX_CLASSES = {
@@ -79,12 +85,17 @@ def get_spec() -> mujoco.MjSpec:
   hand.site(EE_SITE).group = 4  # Hidden marker (it sits inside a grasped object).
   arm.attach(hand, prefix="", frame=arm.body("fr3_link7").add_frame())
 
-  # The real Franka controller compensates gravity internally, so a joint target
-  # is reached without steady-state sag. Without this, the PD loop needs an error
-  # to hold the arm up (about 7 mm at the TCP in the home pose).
+  # The real Franka controller compensates gravity internally. The OSC action
+  # (mdp/actions.py) relies on it: its soft Cartesian spring (200 N/m) would
+  # otherwise need centimetres of error to hold the arm up.
   if GRAVITY_COMPENSATION:
     for body in arm.bodies:
       body.gravcomp = 1.0
+
+  if not ARM_JOINT_FRICTION:
+    for joint in arm.joints:
+      if joint.name.startswith("fr3_joint"):
+        joint.frictionloss = 0.0
 
   # Both fingers, including the unactuated one (see GRIPPER_ARMATURE).
   for name in ("finger_joint1", "finger_joint2"):
@@ -93,30 +104,15 @@ def get_spec() -> mujoco.MjSpec:
 
 
 ##
-# Actuators. Joint-position control through MuJoCo <position> actuators.
+# Actuators. The arm is torque-controlled (the OSC action computes the torques);
+# the gripper is position-controlled.
 ##
 
-# Arm gains are menagerie's (kp, kv); effort limits are the FR3 torque limits.
-# Armature, joint damping and frictionloss stay as identified in fr3.xml.
+# FR3 joint torque limits [Nm]. Armature, joint damping and frictionloss stay as
+# identified in fr3.xml.
 ARM_ACTUATORS = (
-  BuiltinPositionActuatorCfg(
-    target_names_expr=("fr3_joint[12]",),
-    stiffness=4500.0,
-    damping=450.0,
-    effort_limit=87.0,
-  ),
-  BuiltinPositionActuatorCfg(
-    target_names_expr=("fr3_joint[34]",),
-    stiffness=3500.0,
-    damping=350.0,
-    effort_limit=87.0,
-  ),
-  BuiltinPositionActuatorCfg(
-    target_names_expr=("fr3_joint[567]",),
-    stiffness=2000.0,
-    damping=200.0,
-    effort_limit=12.0,
-  ),
+  BuiltinMotorActuatorCfg(target_names_expr=("fr3_joint[1-4]",), effort_limit=87.0),
+  BuiltinMotorActuatorCfg(target_names_expr=("fr3_joint[5-7]",), effort_limit=12.0),
 )
 
 # Franka Hand: one actuated finger; finger_joint2 follows through the XML's
@@ -167,9 +163,17 @@ HOME_KEYFRAME = EntityCfg.InitialStateCfg(
 # Panda's). Check these against your robot's datasheet / libfranka version.
 ARM_JOINT_VEL_LIMITS = (2.62, 2.62, 2.62, 2.62, 5.26, 4.18, 5.26)
 
-# Delta joint-position action: the target moves by ARM_ACTION_SCALE * a per policy
-# step (0.04 s), i.e. 1.25 rad/s for |a| = 1, about half the slowest joint limit.
-ARM_ACTION_SCALE = 0.05  # [rad]
+# Relative Cartesian OSC (mdp/actions.py). Scales, stiffness and damping ratios
+# are OmniReset's training values for the UR5e (UWLab
+# UR5E_ROBOTIQ_2F85_RELATIVE_OSC), which SGS's insertion experiments use; the
+# FR3 is of similar mass. The null-space posture spring is ours (7th joint).
+FR3_OSC = OscGains(
+  scale=(0.02, 0.02, 0.02, 0.02, 0.02, 0.2),
+  stiffness=(200.0, 200.0, 200.0, 3.0, 3.0, 3.0),
+  damping_ratio=(3.0, 3.0, 3.0, 1.0, 1.0, 1.0),
+  nullspace_stiffness=10.0,
+  nullspace_damping=3.0,
+)
 
 # Binary gripper targets. Closed = 0 squeezes a 16 mm peg with
 # stiffness * 8 mm = 16 N; the 70 N effort limit caps anything harder.
@@ -214,7 +218,7 @@ FR3_INFO = RobotInfo(
   make_entity_cfg=partial(get_fr3_robot_cfg, arm_collisions=False),
   arm_joints=("fr3_joint[1-7]",),
   arm_joint_vel_limits=ARM_JOINT_VEL_LIMITS,
-  arm_action_scale=ARM_ACTION_SCALE,
+  arm_osc=FR3_OSC,
   gripper_joint="finger_joint1",
   gripper_open=FINGER_OPEN,
   gripper_closed=FINGER_CLOSED,
