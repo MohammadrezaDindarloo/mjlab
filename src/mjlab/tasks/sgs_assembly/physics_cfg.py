@@ -94,9 +94,11 @@ class SolverCfg:
   # Per-world contact / constraint-row buffer sizes. The MuJoCo Warp heuristic
   # chose njmax = 64, but random actions reached 58 rows in one world (a grasp is
   # ~8 contacts x 4 rows, elliptic condim 4) and at 16K envs some worlds
-  # overflowed, which silently drops constraints. ~3x the measured peaks:
+  # overflowed, which silently drops constraints. 160 still overflowed in long
+  # training runs (11-03: "nefc overflow", then NaN observations and a crash), so
+  # njmax is doubled; at 16384 envs one A40 peaked at 23 GB with 160.
   nconmax: int | None = 48
-  njmax: int | None = 160
+  njmax: int | None = 320
 
   def to_simulation_cfg(self) -> SimulationCfg:
     return SimulationCfg(

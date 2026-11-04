@@ -75,8 +75,10 @@
 #SBATCH --mem=96G
 #SBATCH --time=2-00:00:00
 #SBATCH --output=%x_%j.out
-# Also nodes with GPU errors (crannog05: CUDA fails to start, 2026-10-27).
-#SBATCH --exclude=crannog01,crannog05,damnii[07-12],landonia[03,05,08,21,23,25],saxa
+# Also nodes with GPU errors (crannog05: CUDA fails to start, 2026-10-27), and
+# landonia11, which is shared with the higher-priority Teaching partition: a
+# teaching job preempts ours there (twice in 30 min on 2026-11-04).
+#SBATCH --exclude=crannog01,crannog05,damnii[07-12],landonia[03,05,08,11,21,23,25],saxa
 
 # No `set -e`: a transient Lustre I/O error on a harmless line must not kill a
 # multi-hour job. The training command's own exit code is returned at the end.
