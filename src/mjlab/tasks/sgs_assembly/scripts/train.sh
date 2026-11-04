@@ -26,8 +26,9 @@
 #
 #  Resuming is automatic: RUN_NAME identifies the run. If checkpoints of RUN_NAME
 #  exist, training continues from the newest one up to MAX_ITERS in total (in a
-#  new <date>_<RUN_NAME>/ folder, same W&B run). After a crash the script restarts
-#  by itself. Use a new RUN_NAME for a fresh run.
+#  new <date>_<RUN_NAME>/ folder, same W&B run). After a crash the job ends; the
+#  next job of a campaign resumes on another node. Use a new RUN_NAME for a fresh
+#  run.
 #  Runs longer than the 2-day job limit: scripts/submit_campaign.sh.
 #  Frozen GPU processes write their Python stack to logs/hang_reports/.
 #
@@ -62,18 +63,20 @@
 #    (Episode_Termination/success, SGS/success_rate/<family>, SGS/sample_share/<family>)
 # =============================================================================
 #SBATCH --job-name=sgs_train
-# Either partition (whichever has 4 free A40s first); both may requeue a job,
-# which train.sh then resumes like after a crash.
+# Either partition (whichever has 4 free GPUs first); both may requeue a job,
+# which train.sh then resumes like after a crash. Any GPU type with >= 44 GB
+# (A40, RTX A6000, L40S, H200): 16384 envs per GPU need ~40 GB. The 11 GB
+# RTX 2080 Ti nodes and saxa (mostly MIG slices) are excluded below.
 #SBATCH --partition=Open-Research,ICF-Free
-#SBATCH --gres=gpu:a40:4
+#SBATCH --gres=gpu:4
 # Training is GPU-bound (one process per GPU); few CPUs are needed, and asking
 # for many keeps the job waiting on busy nodes.
 #SBATCH --cpus-per-task=12
 #SBATCH --mem=96G
 #SBATCH --time=2-00:00:00
 #SBATCH --output=%x_%j.out
-# Nodes with GPU errors (crannog05: CUDA fails to start, 2026-10-27).
-#SBATCH --exclude=crannog01,crannog05
+# Also nodes with GPU errors (crannog05: CUDA fails to start, 2026-10-27).
+#SBATCH --exclude=crannog01,crannog05,damnii[07-12],landonia[03,05,08,21,23,25],saxa
 
 # No `set -e`: a transient Lustre I/O error on a harmless line must not kill a
 # multi-hour job. The training command's own exit code is returned at the end.
@@ -129,8 +132,8 @@ if [[ ! -f logs/sgs_decks/fr3_peg_hole.npz ]]; then
 fi
 
 # Experiment folder: one <date>_<RUN_NAME>/ folder per (re)start, plus per run
-# <RUN_NAME>.wandb_id (keeps one W&B curve across restarts) and, when it gives up,
-# <RUN_NAME>.stop.
+# <RUN_NAME>.wandb_id (keeps one W&B curve across restarts), <RUN_NAME>.fails
+# (failed attempts in a row) and, when it gives up, <RUN_NAME>.stop.
 EXP_DIR="$LOG_ROOT/sgs_fr3_peg_hole"
 mkdir -p "$EXP_DIR"
 STOP_FILE="$EXP_DIR/$RUN_NAME.stop"
@@ -150,73 +153,88 @@ echo " node / job  : $(hostname) / ${SLURM_JOB_ID:-interactive}"
 echo " git commit  : $(git rev-parse --short HEAD) $(git diff --quiet || echo '(+ uncommitted changes)')"
 echo "================================================================"
 
-# Train until MAX_ITERS; after a crash, resume from the newest checkpoint. Stop
-# for good (and write STOP_FILE, which later chained jobs obey) only if
-# MAX_FAILS attempts in a row end without a new checkpoint: that is a real bug,
+# One training attempt per job, resumed from the newest checkpoint. After a crash
+# the job ends and the next chained job resumes on another node: restarts on the
+# same node failed (2026-10-28: after a frozen-GPU crash every restart aborted
+# within a minute, on 4 healthy-looking GPUs). FAIL_FILE counts attempts in a
+# row, over all jobs, that end without a new checkpoint; at MAX_FAILS the run
+# stops for good (STOP_FILE, which later chained jobs obey): that is a real bug,
 # not a passing cluster problem, and retrying would only burn GPU hours.
-MAX_FAILS=3
+FAIL_FILE="$EXP_DIR/$RUN_NAME.fails"
+MAX_FAILS=5
+
+if [[ -e "$STOP_FILE" ]]; then
+  echo "[train.sh] $STOP_FILE exists -> not training (delete it to continue)"
+  exit 1
+fi
+TIME_LIMIT=()
+if [[ -n "$DEADLINE" ]]; then
+  seconds_left=$(($(date -d "$DEADLINE" +%s) - $(date +%s)))
+  if ((seconds_left < 600)); then
+    echo "[train.sh] deadline $DEADLINE reached: done"
+    exit 0
+  fi
+  TIME_LIMIT=(timeout "$seconds_left")
+fi
+latest=$(uv run python src/mjlab/tasks/sgs_assembly/scripts/latest_checkpoint.py \
+  "$EXP_DIR" "$RUN_NAME")
+read -r ckpt_dir ckpt_file ckpt_iter <<<"$latest"
+ckpt_iter="${ckpt_iter:-0}"
+# model_<i>.pt is saved after iteration i (0-based): i + 1 iterations done.
+if ((ckpt_iter + 1 >= MAX_ITERS)); then
+  echo "[train.sh] $RUN_NAME reached $MAX_ITERS iterations: done"
+  exit 0
+fi
+RESUME_ARGS=()
+if [[ -n "$ckpt_dir" ]]; then
+  RESUME_ARGS=(--agent.resume True --agent.load-run "$ckpt_dir"
+    --agent.load-checkpoint "$ckpt_file")
+fi
+echo "[train.sh] $(date '+%F %T') start from ${ckpt_dir:-scratch}" \
+  "${ckpt_file:-} (iteration $ckpt_iter), $((MAX_ITERS - ckpt_iter)) to go"
+
+"${TIME_LIMIT[@]}" uv run train "$TASK" \
+  --env.scene.num-envs "$NUM_ENVS" \
+  --agent.max-iterations "$((MAX_ITERS - ckpt_iter))" \
+  --agent.run-name "$RUN_NAME" \
+  --agent.save-interval "$SAVE_INTERVAL" \
+  --log-root "$LOG_ROOT" \
+  --gpu-ids $GPU_IDS \
+  "${RESUME_ARGS[@]}" \
+  "$@"
+status=$?
+if [[ -n "$DEADLINE" ]] && (($(date +%s) >= $(date -d "$DEADLINE" +%s))); then
+  echo "[train.sh] deadline $DEADLINE reached during training: done"
+  exit 0
+fi
+find "$SGS_HANG_DIR" -empty -type f -delete 2>/dev/null
+echo "[train.sh] $(date '+%F %T') training exited with code $status"
+((status == 0)) && exit 0   # Next chained job checks whether MAX_ITERS is reached.
+
+latest=$(uv run python src/mjlab/tasks/sgs_assembly/scripts/latest_checkpoint.py \
+  "$EXP_DIR" "$RUN_NAME")
+read -r _ _ new_iter <<<"$latest"
 fails=0
-while true; do
-  if [[ -e "$STOP_FILE" ]]; then
-    echo "[train.sh] $STOP_FILE exists -> not training (delete it to continue)"
-    exit 1
+if ((${new_iter:-0} <= ckpt_iter)); then
+  fails=$(($(cat "$FAIL_FILE" 2>/dev/null || echo 0) + 1))
+fi
+echo "$fails" >"$FAIL_FILE"
+echo "[train.sh] no new checkpoint in $fails attempt(s) in a row (max $MAX_FAILS)"
+if ((fails >= MAX_FAILS)); then
+  echo "[train.sh] giving up: see the errors above; wrote $STOP_FILE"
+  touch "$STOP_FILE"
+  exit 1
+fi
+# Keep the next chained job (the one waiting on this job) off this node.
+if [[ -n "${SLURM_JOB_ID:-}" ]]; then
+  next=$(squeue -u "$USER" -h -t PD -o "%i %E" |
+    awk -v j="afterany:$SLURM_JOB_ID([^0-9]|$)" '$2 ~ j {print $1; exit}')
+  if [[ -n "$next" ]]; then
+    excluded=$(scontrol show job "$next" | grep -o 'ExcNodeList=[^ ]*' | cut -d= -f2)
+    node=$(hostname -s)
+    [[ "$excluded" == "(null)" || -z "$excluded" ]] && excluded="" || excluded+=","
+    scontrol update JobId="$next" ExcNodeList="$excluded$node" &&
+      echo "[train.sh] next job $next will not run on $node"
   fi
-  TIME_LIMIT=()
-  if [[ -n "$DEADLINE" ]]; then
-    seconds_left=$(($(date -d "$DEADLINE" +%s) - $(date +%s)))
-    if ((seconds_left < 600)); then
-      echo "[train.sh] deadline $DEADLINE reached: done"
-      exit 0
-    fi
-    TIME_LIMIT=(timeout "$seconds_left")
-  fi
-  latest=$(uv run python src/mjlab/tasks/sgs_assembly/scripts/latest_checkpoint.py \
-    "$EXP_DIR" "$RUN_NAME")
-  read -r ckpt_dir ckpt_file ckpt_iter <<<"$latest"
-  ckpt_iter="${ckpt_iter:-0}"
-  # model_<i>.pt is saved after iteration i (0-based): i + 1 iterations done.
-  if ((ckpt_iter + 1 >= MAX_ITERS)); then
-    echo "[train.sh] $RUN_NAME reached $MAX_ITERS iterations: done"
-    exit 0
-  fi
-  RESUME_ARGS=()
-  if [[ -n "$ckpt_dir" ]]; then
-    RESUME_ARGS=(--agent.resume True --agent.load-run "$ckpt_dir"
-      --agent.load-checkpoint "$ckpt_file")
-  fi
-  echo "[train.sh] $(date '+%F %T') start from ${ckpt_dir:-scratch}" \
-    "${ckpt_file:-} (iteration $ckpt_iter), $((MAX_ITERS - ckpt_iter)) to go"
-
-  "${TIME_LIMIT[@]}" uv run train "$TASK" \
-    --env.scene.num-envs "$NUM_ENVS" \
-    --agent.max-iterations "$((MAX_ITERS - ckpt_iter))" \
-    --agent.run-name "$RUN_NAME" \
-    --agent.save-interval "$SAVE_INTERVAL" \
-    --log-root "$LOG_ROOT" \
-    --gpu-ids $GPU_IDS \
-    "${RESUME_ARGS[@]}" \
-    "$@"
-  status=$?
-  if [[ -n "$DEADLINE" ]] && (($(date +%s) >= $(date -d "$DEADLINE" +%s))); then
-    echo "[train.sh] deadline $DEADLINE reached during training: done"
-    exit 0
-  fi
-  find "$SGS_HANG_DIR" -empty -type f -delete 2>/dev/null
-  echo "[train.sh] $(date '+%F %T') training exited with code $status"
-
-  latest=$(uv run python src/mjlab/tasks/sgs_assembly/scripts/latest_checkpoint.py \
-    "$EXP_DIR" "$RUN_NAME")
-  read -r _ _ new_iter <<<"$latest"
-  if ((${new_iter:-0} > ckpt_iter)); then
-    fails=0
-  else
-    fails=$((fails + 1))
-    echo "[train.sh] no new checkpoint ($fails/$MAX_FAILS in a row)"
-    if ((fails >= MAX_FAILS)); then
-      echo "[train.sh] giving up: see the errors above; wrote $STOP_FILE"
-      touch "$STOP_FILE"
-      exit 1
-    fi
-  fi
-  sleep 60   # Let a passing GPU/filesystem problem clear before restarting.
-done
+fi
+exit 1
