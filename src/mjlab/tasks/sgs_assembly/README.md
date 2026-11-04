@@ -100,7 +100,11 @@ folder only provides the configs:
 Observations follow the paper (App. A.3.2, C.3): actor = joint positions, EE
 pose, previous action, scene point cloud (gripper frame); critic = the same +
 joint velocities + exact peg/hole poses. Both use their own PointNet (6 -> 64 ->
-128, max over points, bfloat16) before an MLP (512, 256, 128).
+128, max over points, bfloat16; ours, SGS does not describe its network) before
+an MLP (512, 256, 128, 64). PPO settings are OmniReset's released config (SGS
+gives none): state-dependent action noise, entropy 0.006, lr 1e-4 (adaptive,
+KL 0.01), 32 steps per env, 5 epochs, no action clipping; mini-batches 16
+instead of 4 (memory, see `rl_cfg.py`).
 `Mjlab-SGS-PegHole-FR3-Deck-Pose` swaps the point cloud for exact poses (debug).
 
 ```bash
@@ -114,8 +118,8 @@ sbatch --gres=gpu:a40:4 --cpus-per-task=12 --mem=96G \
 ```
 Checkpoints: `logs/rsl_rl/sgs_fr3_peg_hole/<date>_<run>/model_<it>.pt` (every 50
 iterations, plus `params/` with the run's exact configs); curves: W&B project
-`sgs-assembly`. Speed on one A40 at 16384 envs: ~14 s per iteration, 16 mini-batches
-(4 ran out of memory). See the header of `scripts/train.sh` for all options
+`sgs-assembly`. Speed on one A40 at 16384 envs: ~30 s per iteration (10 Hz OSC,
+32 steps per env), 27 GB. See the header of `scripts/train.sh` for all options
 (resume, GPUs, log root).
 
 ## Design decisions (and why)
@@ -202,8 +206,11 @@ Choices where the paper is silent:
   - Open (gripper model): while the fingers close, pad-peg penetration briefly
     reaches ~3-4 mm and the two (softly coupled) fingers differ by up to 2.4 mm;
     steady holding is ~0.5 mm. Deck states themselves have no penetration.
-- [ ] Uniform-sampling PPO baseline (running; first attempt diverged: unclipped
-      actions + entropy 0.005 let the noise grow; fixed with clip [-1, 1] and 0.001)
+- [ ] Uniform vs SGS PPO baseline. History: joint control runs exploited soft
+      contacts (logs/archive_soft_contact_bug), then on fixed physics learned
+      nothing (logs/archive_deck_gap_no_learning: no Stable-Grasp stepping
+      stones, exploration collapse). 2026-11-04: deck, control interface (OSC,
+      10 Hz) and PPO (OmniReset) aligned with SGS/OmniReset; next: 1-GPU test.
 - [x] SGS sampler (`sampling/sampler.py`, paper Eq. 1-2 / App. B.2; outcomes per
       deck entry recorded in `mdp/events.py`, merged across GPUs; task `-Deck-SGS`)
 - [ ] Friction sweep reproducing the paper's pad-mu result (mu = 1, 2, 100)
