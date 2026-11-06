@@ -32,17 +32,25 @@ at a higher z position than Near-Goal, and uses the same task-specific grasp set
 with a randomized gripper aperture", where that setup is "position the
 end-effector around a task-specific grasp point using inverse kinematics,
 randomizing its position, orientation, and gripper aperture". Our reading:
-  - peg: upright on the hole axis ("above the assembly target"), any yaw, tip
-    from the top of Near-Goal (path fraction 1.1, 3 mm above the entrance) up to
-    ``STABLE_TIP_HEIGHT_MAX`` ("a higher z position than Near-Goal"). Earlier
-    versions also offset the peg up to 5 cm sideways and tilted it up to 15 deg:
-    not in the paper, and with them no start was ever solved (2026-11-04);
+  - peg: above the hole ("above the assembly target"), any yaw, tip from the top
+    of Near-Goal (path fraction 1.1, 3 mm above the entrance) up to
+    ``STABLE_TIP_HEIGHT_MAX`` ("a higher z position than Near-Goal"); its tip
+    offset sideways from the hole axis by a radius uniform in
+    [0, ``STABLE_LATERAL_MAX``] and the peg tilted by up to ``STABLE_TILT_MAX``.
+    The paper does not say "exactly on the axis". With the peg exactly on the
+    axis and upright (2026-11-05 deck), opening the gripper dropped it onto the
+    hole, and the trained policy (model_3100) learned to drop the peg and square
+    it with repeated open/close instead of carrying it (2026-11-06). The offset
+    and tilt make a dropped peg mostly miss; radius 0 keeps the bridge to
+    Near-Goal. (An earlier deck with up to 5 cm / 15 deg, with the joint-position
+    controller, solved no start at all, 2026-11-04: hence the smaller ranges.)
   - task-specific grasp: the end grasp on the peg's *upper* end, gripper from
     above (the grasp that can insert: fingers stay above the hole walls),
     randomised by ``GRASP_NOISE_*`` around its nominal pose, least-wrist-turn
     member of the 4 symmetric hand rotations;
   - aperture: near contact, ``GRASP_GAP`` wider than the peg, so a "close" action
-    secures it at once (the policy's first action decides, as for every family).
+    secures it at once (the policy's first action decides, as for every family:
+    it is applied before the first physics step).
 Steps 3-5 (posture-aware IK, comfortable joints, validity) are as for Reaching.
 
 Near-Goal family (SGS App. A.2): "places the manipulated object [...] along its
@@ -84,6 +92,8 @@ POSTURE_NOISE = 0.3  # [rad] spread of the preferred arm posture around home.
 MAX_JOINT_RANGE_FRACTION = 0.9  # Of the half-range from the soft-limit midpoint.
 # Stable Grasp peg pose (relative to the hole) and the task-specific grasp noise.
 STABLE_TIP_HEIGHT_MAX = 0.12  # [m] peg tip above the hole entrance (our choice).
+STABLE_LATERAL_MAX = 0.02  # [m] tip offset from the hole axis (our choice).
+STABLE_TILT_MAX = math.radians(10.0)  # Peg axis from vertical (our choice).
 GRASP_NOISE_ALONG = 0.006  # [m] TCP along the peg axis (around END_GRASP_DEPTH).
 GRASP_NOISE_ACROSS = 0.003  # [m] TCP along the pad width (x_hand).
 GRASP_NOISE_ROT = math.radians(10.0)  # Hand rotation about the pad normal (y_hand).
@@ -234,12 +244,18 @@ class DeckBuilder:
     tries = 0
     while len(rows) < n:
       tries += 1
-      quat, rot = self._tilted_upright(rng, 0.0)
+      quat, rot = self._tilted_upright(rng, STABLE_TILT_MAX)
       # Lowest tip height: the top of the Near-Goal range (fraction 1.1).
       near_goal_top = NEAR_GOAL_FRACTION[1] * self.cfg.hole_depth
       tip_z = rng.uniform(near_goal_top, self.cfg.hole_depth + STABLE_TIP_HEIGHT_MAX)
-      tip = self.hole_pos + np.array([0.0, 0.0, tip_z])
-      pos = tip + np.array([0.0, 0.0, self.cfg.peg_length / 2])
+      radius = rng.uniform(0.0, STABLE_LATERAL_MAX)  # Denser near the axis.
+      phi = rng.uniform(-math.pi, math.pi)
+      tip = self.hole_pos + np.array(
+        [radius * math.cos(phi), radius * math.sin(phi), tip_z]
+      )
+      # Centre half a peg length up the (tilted) axis from the lower end.
+      axis_up = rot[:, 2] if rot[2, 2] >= 0 else -rot[:, 2]
+      pos = tip + axis_up * self.cfg.peg_length / 2
       tcp_pos, tcp_rot = self._task_grasp(pos, rot, rng)
       finger_q = self.cfg.peg_width / 2 + rng.uniform(*GRASP_GAP)
       arm_q = self._place_arm(tcp_pos, tcp_rot, finger_q, pos, quat, rng)

@@ -3,13 +3,20 @@
 uv run pytest src/mjlab/tasks/sgs_assembly/tests/test_sgs_deck.py
 """
 
+import math
+
 import numpy as np
 import pytest
 
 from mjlab.tasks.sgs_assembly.config.franka_peg.env_cfgs import fr3_peg_hole_env_cfg
 from mjlab.tasks.sgs_assembly.objects.peg_hole.peg_hole import PegHoleCfg
 from mjlab.tasks.sgs_assembly.resets.deck import Family, ResetDeck
-from mjlab.tasks.sgs_assembly.resets.generate import DeckBuilder, quat_to_mat
+from mjlab.tasks.sgs_assembly.resets.generate import (
+  STABLE_LATERAL_MAX,
+  STABLE_TILT_MAX,
+  DeckBuilder,
+  quat_to_mat,
+)
 
 PEG = PegHoleCfg()
 
@@ -67,6 +74,11 @@ def test_stable_grasp_states_hold_the_peg_above_the_hole(builder):
     tip_z = deck.peg_pos[i][2] - PEG.peg_length / 2 * abs(rot[2, 2])
     assert tip_z > builder.hole_pos[2] + PEG.hole_depth
     assert PEG.peg_width / 2 < deck.finger_q[i] < PEG.peg_width / 2 + 0.0031
+    # Tilt and the lower end's sideways offset from the hole axis.
+    assert math.acos(abs(rot[2, 2])) <= STABLE_TILT_MAX + 1e-9
+    axis_up = rot[:, 2] * np.sign(rot[2, 2])
+    tip = deck.peg_pos[i] - axis_up * PEG.peg_length / 2
+    assert np.linalg.norm(tip[:2] - builder.hole_pos[:2]) <= STABLE_LATERAL_MAX + 1e-9
 
 
 def test_near_goal_states_lie_on_the_insertion_path(builder):
