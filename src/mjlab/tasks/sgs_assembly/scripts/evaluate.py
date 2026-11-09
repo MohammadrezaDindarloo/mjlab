@@ -8,6 +8,9 @@ it is now.
 
   uv run python src/mjlab/tasks/sgs_assembly/scripts/evaluate.py \
     --checkpoint logs/rsl_rl/sgs_fr3_peg_hole/<run>/model_1750.pt
+
+``--deck-path`` evaluates on another deck file (default: the task's deck,
+DEFAULT_DECK_PATH); it must label its rows with the same families.
 """
 
 from dataclasses import asdict
@@ -19,6 +22,7 @@ import mjlab.tasks  # noqa: F401  (populates the task registry)
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg, load_rl_cfg, load_runner_cls
+from mjlab.tasks.sgs_assembly.config.franka_peg.env_cfgs import DEFAULT_DECK_PATH
 
 FAMILY_TASKS = {
   "near_goal": "Mjlab-SGS-PegHole-FR3-Deck-NearGoal",
@@ -27,9 +31,12 @@ FAMILY_TASKS = {
 }
 
 
-def evaluate(task: str, checkpoint: str, num_envs: int) -> dict[str, float]:
+def evaluate(
+  task: str, checkpoint: str, num_envs: int, deck_path: str
+) -> dict[str, float]:
   env_cfg = load_env_cfg(task, play=True)
   env_cfg.scene.num_envs = num_envs
+  env_cfg.events["reset_from_deck"].params["deck_path"] = deck_path
   # Play mode never times out; evaluate with the training episode length.
   env_cfg.episode_length_s = load_env_cfg(task).episode_length_s
   agent_cfg = load_rl_cfg(task)
@@ -57,10 +64,15 @@ def evaluate(task: str, checkpoint: str, num_envs: int) -> dict[str, float]:
   return {name: flag.float().mean().item() for name, flag in ended.items()}
 
 
-def main(checkpoint: str, num_envs: int = 1024) -> None:
-  results = {f: evaluate(t, checkpoint, num_envs) for f, t in FAMILY_TASKS.items()}
+def main(
+  checkpoint: str, num_envs: int = 1024, deck_path: str = DEFAULT_DECK_PATH
+) -> None:
+  results = {
+    f: evaluate(t, checkpoint, num_envs, deck_path) for f, t in FAMILY_TASKS.items()
+  }
   names = list(next(iter(results.values())))
-  print(f"\n{checkpoint}\n{'family':<14}" + "".join(f"{n:>24}" for n in names))
+  print(f"\n{checkpoint} on {deck_path}")
+  print(f"{'family':<14}" + "".join(f"{n:>24}" for n in names))
   for family, r in results.items():
     print(f"{family:<14}" + "".join(f"{r[n]:>24.3f}" for n in names))
 
