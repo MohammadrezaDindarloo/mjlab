@@ -119,9 +119,10 @@ fi
 # block for many minutes (seen 2026-10-27), and a GPU process blocked for 10 min
 # makes NCCL abort the whole job. The environment is built from uv.lock (the same
 # packages as ./.venv) once per node and reused by later jobs on that node. If
-# that fails, the shared ./.venv is used as before.
-LOCAL_DISK="/disk/scratch/$USER"
-if mkdir -p "$LOCAL_DISK" 2>/dev/null; then
+# that fails, the shared ./.venv is used as before. Skipped where there is no
+# /disk/scratch, e.g. in the docker/ image, which has its environment built in.
+LOCAL_DISK="/disk/scratch/${USER:-root}"
+if [[ -d /disk/scratch ]] && mkdir -p "$LOCAL_DISK" 2>/dev/null; then
   export UV_CACHE_DIR="$LOCAL_DISK/uv_cache" WARP_CACHE_PATH="$LOCAL_DISK/warp_cache"
   if UV_PROJECT_ENVIRONMENT="$LOCAL_DISK/mjlab_venv" uv sync --frozen; then
     export UV_PROJECT_ENVIRONMENT="$LOCAL_DISK/mjlab_venv"

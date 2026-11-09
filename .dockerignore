@@ -1,34 +1,28 @@
-# Large runtime directories
+# docker/Dockerfile only needs pyproject.toml and uv.lock from the context; keep
+# everything else (and anything big or private) out of it.
+.git/
+.github/
 .venv/
+venv/
+build/
+dist/
+outputs/
+data/
 logs/
 wandb/
 artifacts/
 benchmark_results/
-dist/
-
-# Build/cache
+notebooks/
 __pycache__/
 *.pyc
 .ruff_cache/
 .pytest_cache/
 .uv-cache/
 *.egg-info/
-
-# Git/CI
-.git/
-.github/
-.gitignore
-.pre-commit-config.yaml
-
-# IDE/local
 .vscode/
 .claude/
-notebooks/
-
-# Docker
-Dockerfile
-.dockerignore
-
-# Docs build artifacts
+.env
+*.env
+MUJOCO_LOG.TXT
 docs/source/_build/
 docs/source/generated/
