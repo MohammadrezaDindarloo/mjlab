@@ -8,6 +8,7 @@
 #
 #  Settings are environment variables (defaults below), e.g.
 #    RUN_NAME=uniform_16k MAX_ITERS=1000 bash .../train.sh
+#    DECK=logs/sgs_decks/other_deck.npz RUN_NAME=other_deck bash .../train.sh
 #    sbatch --export=ALL,RUN_NAME=uniform_16k,MAX_ITERS=5000 .../train.sh
 #  Anything after the script name is passed on to `uv run train`, e.g.
 #    bash .../train.sh --agent.algorithm.learning-rate 5e-4
@@ -95,6 +96,10 @@ LOG_ROOT="${LOG_ROOT:-$MJLAB_ROOT/logs/rsl_rl}"   # Absolute: never depends on c
 # stops there even if MAX_ITERS is not reached; jobs starting later exit at once.
 DEADLINE="${DEADLINE:-}"
 GPU_IDS="${GPU_IDS:-all}"   # "all", or indices like "0 1" (into the job's GPUs).
+# Reset deck file, relative to MJLAB_ROOT (default: build_deck.py's deck). Keep
+# one RUN_NAME per deck: a resumed run reloads DECK.
+DECK="${DECK:-logs/sgs_decks/fr3_peg_hole.npz}"
+export SGS_DECK_PATH="$DECK"   # Read by config/franka_peg/env_cfgs.py.
 
 export PATH="$HOME/.local/bin:$PATH"
 unset VIRTUAL_ENV   # A stray conda env would make uv warn and ignore it anyway.
@@ -127,8 +132,13 @@ if mkdir -p "$LOCAL_DISK" 2>/dev/null; then
   fi
 fi
 
-# The reset deck is not in git; build it once if it is missing (~3 min).
-if [[ ! -f logs/sgs_decks/fr3_peg_hole.npz ]]; then
+# The reset deck is not in git; build the default one once if it is missing
+# (~3 min). Another DECK must already be there.
+if [[ ! -f "$DECK" ]]; then
+  if [[ "$DECK" != logs/sgs_decks/fr3_peg_hole.npz ]]; then
+    echo "[train.sh] deck not found: $MJLAB_ROOT/$DECK"
+    exit 1
+  fi
   echo "[train.sh] reset deck missing -> building it"
   uv run python src/mjlab/tasks/sgs_assembly/scripts/build_deck.py
 fi
@@ -146,6 +156,7 @@ export SGS_HANG_DIR="$MJLAB_ROOT/logs/hang_reports"
 
 echo "================================================================"
 echo " task        : $TASK"
+echo " deck        : $DECK"
 echo " envs        : $NUM_ENVS per GPU   total iterations: $MAX_ITERS"
 echo " GPUs        : $GPU_IDS  (visible: ${CUDA_VISIBLE_DEVICES:-all})"
 echo " run name    : $RUN_NAME     checkpoint every $SAVE_INTERVAL its"

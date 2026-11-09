@@ -29,7 +29,7 @@ set -euo pipefail
 date -d "$DEADLINE" >/dev/null || exit 1
 JOBS="${JOBS:-20}"
 SCRIPT="src/mjlab/tasks/sgs_assembly/scripts/train.sh"
-export TASK RUN_NAME MAX_ITERS DEADLINE
+export TASK RUN_NAME MAX_ITERS DEADLINE DECK
 
 previous=""
 ids=()

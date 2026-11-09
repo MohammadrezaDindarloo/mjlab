@@ -6,6 +6,7 @@ Layout (env frame, metres): robot base at the origin, hole fixture at
 """
 
 import math
+import os
 from typing import Literal
 
 from mjlab.envs import ManagerBasedRlEnvCfg
@@ -45,8 +46,9 @@ PEG_RESET_RANGE = {"x": (-0.1, 0.1), "y": (-0.1, 0.1), "yaw": (-math.pi, math.pi
 WORKSPACE_LOWER = (0.0, -0.6, -0.05)
 WORKSPACE_UPPER = (1.0, 0.6, 0.8)
 # Default reset deck, built by scripts/build_deck.py (path relative to the repo
-# root, like mjlab's logs/; not committed).
-DEFAULT_DECK_PATH = "logs/sgs_decks/fr3_peg_hole.npz"
+# root, like mjlab's logs/; not committed). SGS_DECK_PATH selects another deck
+# file (scripts/train.sh sets it from DECK); the run's params/env.yaml records it.
+DEFAULT_DECK_PATH = os.environ.get("SGS_DECK_PATH", "logs/sgs_decks/fr3_peg_hole.npz")
 POINT_CLOUD_NOISE_STD = 0.001  # [m] per point per step (paper App. C.4).
 # Peg-hole overlap that counts as passing through the walls (failure) [m]. With
 # physics_cfg's contacts a 100 N push overlaps ~0.1 mm; the old soft contacts
