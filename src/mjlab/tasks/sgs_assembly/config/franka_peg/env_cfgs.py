@@ -131,6 +131,7 @@ def fr3_peg_hole_env_cfg(
     concatenate_terms=True,
     concatenate_dim=-1,
     enable_corruption=not play,
+    nan_policy="warn",  # Same safety net as actor/critic (env_cfg.py).
   )
 
   # Success S(s): terminal, rewarded with +weights.success.

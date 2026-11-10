@@ -6,7 +6,8 @@
 - actions: delta joint-position arm + binary gripper (mdp/actions.py),
 - observations: proprioception (actor) + joint velocities (critic only, App. C.3),
 - rewards: Eq. 5 regularisers and the failure penalty,
-- terminations: arm joint velocity > 2x limit (failure) and time-out,
+- terminations: arm joint velocity > 2x limit (failure), time-out, and NaN/Inf
+  physics state (reset only, no penalty: a solver blow-up is not the policy's fault),
 - events: place every entity in its env at reset.
 
 A task config adds its object observations, success term (+ success reward),
@@ -104,6 +105,11 @@ def make_assembly_env_cfg(
 
   terms = {
     "time_out": TerminationTermCfg(func=mjlab_mdp.time_out, time_out=True),
+    # An env whose physics state went NaN/Inf (rare solver blow-up, seen once in
+    # ~11M env steps at 16k envs) ends its episode and is reset, which clears its
+    # whole mjwarp state; the other envs train on. Without this the NaN reaches
+    # the observations and RSL-RL aborts the entire run.
+    "nan_detection": TerminationTermCfg(func=mjlab_mdp.nan_detection),
     "arm_joint_vel_exceeded": TerminationTermCfg(
       func=terminations.joint_vel_exceeded,
       params={
@@ -157,8 +163,14 @@ def make_assembly_env_cfg(
       ),
     },
     observations={
-      "actor": ObservationGroupCfg(actor_terms, enable_corruption=False),
-      "critic": ObservationGroupCfg(critic_terms, enable_corruption=False),
+      # nan_policy="warn": second safety net behind the nan_detection termination;
+      # any NaN/Inf left in an observation is logged (env ids) and set to 0.
+      "actor": ObservationGroupCfg(
+        actor_terms, enable_corruption=False, nan_policy="warn"
+      ),
+      "critic": ObservationGroupCfg(
+        critic_terms, enable_corruption=False, nan_policy="warn"
+      ),
     },
     events=events,
     rewards=reward_terms,
